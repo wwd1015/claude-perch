@@ -272,12 +272,10 @@ struct InstanceRow: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Chat + activity view (like Vibe Island's expanded conversation)
-            if !isWaitingForApproval && !session.chatItems.isEmpty {
+            // Expanded view: conversation + activity (tap to toggle)
+            if showDetail && !isWaitingForApproval && !session.chatItems.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    // Recent conversation messages
                     ConversationPreview(session: session)
-                    // Tool activity below
                     ActivityLogView(session: session)
                 }
                 .padding(.horizontal, 8)
