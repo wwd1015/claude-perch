@@ -477,8 +477,8 @@ struct NotchView: View {
                 }
             }
 
-            if viewModel.status == .closed &&
-               !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
+            // Always pop the notch open for permission requests
+            if viewModel.status == .closed {
                 viewModel.notchOpen(reason: .notification)
             }
         }

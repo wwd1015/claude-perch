@@ -233,8 +233,8 @@ struct InstanceRow: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Activity log (expanded on tap)
-            if showDetail && !isWaitingForApproval {
+            // Activity log - always visible when session has tool history
+            if !isWaitingForApproval && !session.chatItems.isEmpty {
                 ActivityLogView(session: session)
                     .padding(.horizontal, 8)
                     .padding(.bottom, 8)

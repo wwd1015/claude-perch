@@ -24,11 +24,7 @@ struct ActivityLogView: View {
 
     var body: some View {
         if recentTools.isEmpty {
-            Text("No activity yet")
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.3))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+            EmptyView()
         } else {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
