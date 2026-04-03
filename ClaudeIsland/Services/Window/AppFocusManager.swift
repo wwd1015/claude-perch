@@ -73,13 +73,15 @@ actor AppFocusManager {
                         }
                     }
 
-                    Self.logger.error("FOCUS: no tree match, trying find-window")
+                    Self.logger.error("FOCUS: no tree match, trying find-window --content")
 
                     // Fallback: find-window --content (searches terminal screen text)
                     for term in terms {
-                        if let result = Self.shell(cmux, ["find-window", "--content", "--select", term]),
-                           !result.lowercased().contains("no matches") {
-                            Self.logger.error("FOCUS: content match '\(term, privacy: .public)'")
+                        Self.logger.error("FOCUS: trying content search: '\(term, privacy: .public)'")
+                        let result = Self.shell(cmux, ["find-window", "--content", "--select", term])
+                        Self.logger.error("FOCUS: content result: '\(result ?? "nil", privacy: .public)'")
+                        if let result = result, !result.lowercased().contains("no matches"), !result.isEmpty {
+                            Self.logger.error("FOCUS: content MATCHED '\(term, privacy: .public)'")
                             Self.activateGhostty()
                             continuation.resume(returning: true)
                             return
