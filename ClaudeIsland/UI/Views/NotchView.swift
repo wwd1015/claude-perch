@@ -384,6 +384,18 @@ struct NotchView: View {
                 }
             }
             .buttonStyle(.plain)
+
+            // Settings gear (opens separate window like Vibe Island)
+            Button {
+                SettingsWindowController.shared.showSettings()
+            } label: {
+                Image(systemName: "gear")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.4))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 
