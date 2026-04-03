@@ -274,46 +274,43 @@ struct PermissionDetailView: View {
         }
     }
 
-    // MARK: - Approval Buttons (full-width, side by side like Vibe Island)
+    // MARK: - Approval Buttons (4 buttons like Vibe Island)
 
     private var approvalButtons: some View {
-        HStack(spacing: 8) {
-            Button {
+        HStack(spacing: 6) {
+            // Deny (dark)
+            approvalButton(label: "Deny", color: Color.white.opacity(0.1), textColor: .white.opacity(0.7)) {
                 onDeny()
-            } label: {
-                HStack(spacing: 4) {
-                    Text("Deny")
-                        .font(.system(size: 13, weight: .medium))
-                    Text("\u{2318}N")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.4))
-                }
-                .foregroundColor(.white.opacity(0.7))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Color.white.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .buttonStyle(.plain)
 
-            Button {
+            // Allow Once (dark)
+            approvalButton(label: "Allow Once", color: Color.white.opacity(0.1), textColor: .white.opacity(0.7)) {
                 onApprove()
-            } label: {
-                HStack(spacing: 4) {
-                    Text("Allow")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("\u{2318}Y")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.black.opacity(0.5))
-                }
-                .foregroundColor(.black)
+            }
+
+            // Always Allow (blue)
+            approvalButton(label: "Always Allow", color: Color(red: 0.3, green: 0.5, blue: 0.8), textColor: .white) {
+                onApprove()
+            }
+
+            // Bypass (red/orange)
+            approvalButton(label: "Bypass", color: Color(red: 0.7, green: 0.35, blue: 0.3), textColor: .white) {
+                onApprove()
+            }
+        }
+    }
+
+    private func approvalButton(label: String, color: Color, textColor: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(textColor)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(Color.white.opacity(0.9))
+                .background(color)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
         }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Helpers

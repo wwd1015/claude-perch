@@ -13,10 +13,9 @@ import os.log
 actor AppFocusManager {
     static let shared = AppFocusManager()
 
-    /// Logger must be nonisolated static to avoid MainActor isolation issues
     private nonisolated static let logger = Logger(subsystem: "com.claudeisland", category: "Focus")
 
-    private let cmuxPath: String?
+    let cmuxPath: String?
 
     private init() {
         let paths = [
@@ -35,16 +34,15 @@ actor AppFocusManager {
     }
 
     /// Focus the terminal for a Claude session.
-    /// Runs cmux on a background thread with a timeout to prevent UI freezes.
     func focusSession(pid: Int?, cwd: String, isInTmux: Bool, sessionTitle: String? = nil) async -> Bool {
         if let cmux = cmuxPath {
             let cmuxPath = cmux
             let title = sessionTitle
-            let dir = cwd
+            let project = URL(fileURLWithPath: cwd).lastPathComponent
+            let sessionId = pid.map { String($0) }
 
-            // Switch cmux to the right workspace/surface
             let _ = await Task.detached(priority: .userInitiated) {
-                return Self.runCmuxFocus(cmux: cmuxPath, title: title, cwd: dir)
+                Self.focusViaCmux(cmux: cmuxPath, project: project, title: title, sessionId: sessionId)
             }.value
         }
 
@@ -52,36 +50,78 @@ actor AppFocusManager {
         return Self.activateTerminalApp()
     }
 
-    // MARK: - cmux Focus (runs off main actor)
+    // MARK: - cmux Focus
 
-    /// Run cmux commands synchronously with a 2-second timeout.
-    /// This is nonisolated and runs on a background thread to prevent actor deadlocks.
-    private nonisolated static func runCmuxFocus(cmux: String, title: String?, cwd: String) -> Bool {
-        // Strategy 1: search by session title in workspace names
-        if let title = title, !title.isEmpty {
-            if runCmuxCommand(cmux, args: ["find-window", "--select", title]) {
-                logger.info("Focused cmux by title: \(title, privacy: .public)")
-                return true
+    /// Focus a session by finding its pane via surface title matching
+    private nonisolated static func focusViaCmux(cmux: String, project: String, title: String?, sessionId: String?) -> Bool {
+        // Get all panes
+        let panesOutput = runCmuxOutput(cmux, args: ["list-panes"])
+        guard let panesOutput = panesOutput else { return false }
+
+        // Parse pane IDs (e.g., "pane:1", "pane:3")
+        let paneIds = panesOutput.components(separatedBy: "\n")
+            .compactMap { line -> String? in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    .replacingOccurrences(of: "* ", with: "")
+                guard let spaceIdx = trimmed.firstIndex(of: " ") else {
+                    return trimmed.isEmpty ? nil : trimmed
+                }
+                return String(trimmed[trimmed.startIndex..<spaceIdx])
+            }
+            .filter { $0.hasPrefix("pane:") }
+
+        // For each pane, check its surface title for a match
+        for paneId in paneIds {
+            let surfaceOutput = runCmuxOutput(cmux, args: ["list-pane-surfaces", "--pane", paneId])
+            guard let surfaceOutput = surfaceOutput else { continue }
+
+            let surfaceTitle = surfaceOutput.lowercased()
+
+            // Match by project name (e.g., "claude-island" in "claude-island · mission-control...")
+            if surfaceTitle.contains(project.lowercased()) {
+                if runCmuxCommand(cmux, args: ["focus-pane", "--pane", paneId]) {
+                    logger.info("Focused cmux pane \(paneId) by project: \(project, privacy: .public)")
+                    return true
+                }
             }
         }
 
-        // Strategy 2: search terminal content by full working directory path
-        if runCmuxCommand(cmux, args: ["find-window", "--content", "--select", cwd]) {
-            logger.info("Focused cmux by cwd content: \(cwd, privacy: .public)")
-            return true
-        }
-
-        // Strategy 3: search by directory name
-        let dirName = URL(fileURLWithPath: cwd).lastPathComponent
-        if runCmuxCommand(cmux, args: ["find-window", "--select", dirName]) {
-            logger.info("Focused cmux by dir: \(dirName, privacy: .public)")
-            return true
+        // Fallback: try find-window with workspace title
+        if let title = title, !title.isEmpty {
+            if runCmuxCommand(cmux, args: ["find-window", "--select", title]) {
+                logger.info("Focused cmux by workspace title: \(title, privacy: .public)")
+                return true
+            }
         }
 
         return false
     }
 
-    /// Execute a cmux command with a 2-second timeout. Returns true on success.
+    /// Run a cmux command and return stdout
+    private nonisolated static func runCmuxOutput(_ cmux: String, args: [String]) -> String? {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cmux)
+        process.arguments = args
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            let deadline = Date().addingTimeInterval(2.0)
+            while process.isRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            if process.isRunning { process.terminate(); return nil }
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Execute a cmux command with timeout. Returns true on success.
     private nonisolated static func runCmuxCommand(_ cmux: String, args: [String]) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: cmux)
@@ -91,29 +131,19 @@ actor AppFocusManager {
 
         do {
             try process.run()
-
-            // Poll with 2-second timeout
             let deadline = Date().addingTimeInterval(2.0)
             while process.isRunning && Date() < deadline {
                 Thread.sleep(forTimeInterval: 0.05)
             }
-
-            if process.isRunning {
-                process.terminate()
-                logger.warning("cmux timed out: \(args.joined(separator: " "), privacy: .public)")
-                return false
-            }
-
+            if process.isRunning { process.terminate(); return false }
             return process.terminationStatus == 0
         } catch {
-            logger.debug("cmux error: \(error.localizedDescription, privacy: .public)")
-            return false
+            return nil != nil // always false
         }
     }
 
     // MARK: - cmux Notification Suppression
 
-    /// Tell cmux that Claude Island is handling notifications (suppresses cmux's own)
     func suppressCmuxNotifications() {
         guard let cmux = cmuxPath else { return }
         Task.detached {
@@ -121,7 +151,6 @@ actor AppFocusManager {
         }
     }
 
-    /// Tell cmux to resume its own notifications (when Claude Island quits)
     func restoreCmuxNotifications() {
         guard let cmux = cmuxPath else { return }
         Task.detached {
@@ -138,7 +167,6 @@ actor AppFocusManager {
             "com.googlecode.iterm2",
             "com.apple.Terminal"
         ]
-
         for bundleId in bundleIds {
             let apps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
             if let app = apps.first, app.activate() {
