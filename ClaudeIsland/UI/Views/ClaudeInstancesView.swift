@@ -114,7 +114,8 @@ struct ClaudeInstancesView: View {
                 pid: session.pid,
                 cwd: session.cwd,
                 isInTmux: session.isInTmux,
-                sessionTitle: session.displayTitle
+                sessionTitle: session.displayTitle,
+                sessionId: session.sessionId
             )
         }
     }

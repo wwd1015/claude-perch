@@ -34,15 +34,15 @@ actor AppFocusManager {
     }
 
     /// Focus the terminal for a Claude session.
-    func focusSession(pid: Int?, cwd: String, isInTmux: Bool, sessionTitle: String? = nil) async -> Bool {
+    func focusSession(pid: Int?, cwd: String, isInTmux: Bool, sessionTitle: String? = nil, sessionId: String? = nil) async -> Bool {
         if let cmux = cmuxPath {
             let cmuxPath = cmux
             let title = sessionTitle
             let project = URL(fileURLWithPath: cwd).lastPathComponent
-            let sessionId = pid.map { String($0) }
+            let sid = sessionId
 
             let _ = await Task.detached(priority: .userInitiated) {
-                Self.focusViaCmux(cmux: cmuxPath, project: project, title: title, sessionId: sessionId)
+                Self.focusViaCmux(cmux: cmuxPath, project: project, title: title, sessionId: sid)
             }.value
         }
 
@@ -52,13 +52,13 @@ actor AppFocusManager {
 
     // MARK: - cmux Focus
 
-    /// Focus a session by finding its pane via surface title matching
+    /// Focus a session by finding its pane via surface title matching.
+    /// Tries: session ID prefix > project name > session title > workspace title
     private nonisolated static func focusViaCmux(cmux: String, project: String, title: String?, sessionId: String?) -> Bool {
         // Get all panes
         let panesOutput = runCmuxOutput(cmux, args: ["list-panes"])
         guard let panesOutput = panesOutput else { return false }
 
-        // Parse pane IDs (e.g., "pane:1", "pane:3")
         let paneIds = panesOutput.components(separatedBy: "\n")
             .compactMap { line -> String? in
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -70,26 +70,54 @@ actor AppFocusManager {
             }
             .filter { $0.hasPrefix("pane:") }
 
-        // For each pane, check its surface title for a match
+        // Build a list of (paneId, surfaceTitle) pairs
+        var paneSurfaces: [(pane: String, title: String)] = []
         for paneId in paneIds {
-            let surfaceOutput = runCmuxOutput(cmux, args: ["list-pane-surfaces", "--pane", paneId])
-            guard let surfaceOutput = surfaceOutput else { continue }
+            if let output = runCmuxOutput(cmux, args: ["list-pane-surfaces", "--pane", paneId]) {
+                paneSurfaces.append((pane: paneId, title: output.lowercased()))
+            }
+        }
 
-            let surfaceTitle = surfaceOutput.lowercased()
+        // Strategy 1: Match by session ID prefix (most precise)
+        // Surface titles end with session UUID like "· f392f138-87a8-4e"
+        if let sid = sessionId {
+            let shortId = String(sid.prefix(8)).lowercased()
+            for ps in paneSurfaces {
+                if ps.title.contains(shortId) {
+                    if runCmuxCommand(cmux, args: ["focus-pane", "--pane", ps.pane]) {
+                        logger.info("Focused pane \(ps.pane) by sessionId: \(shortId, privacy: .public)")
+                        return true
+                    }
+                }
+            }
+        }
 
-            // Match by project name (e.g., "claude-island" in "claude-island · mission-control...")
-            if surfaceTitle.contains(project.lowercased()) {
-                if runCmuxCommand(cmux, args: ["focus-pane", "--pane", paneId]) {
-                    logger.info("Focused cmux pane \(paneId) by project: \(project, privacy: .public)")
+        // Strategy 2: Match by project name
+        let projectLower = project.lowercased()
+        for ps in paneSurfaces {
+            if ps.title.contains(projectLower) {
+                if runCmuxCommand(cmux, args: ["focus-pane", "--pane", ps.pane]) {
+                    logger.info("Focused pane \(ps.pane) by project: \(project, privacy: .public)")
                     return true
                 }
             }
         }
 
-        // Fallback: try find-window with workspace title
+        // Strategy 3: Match by session title/summary
         if let title = title, !title.isEmpty {
+            let titleLower = title.lowercased()
+            for ps in paneSurfaces {
+                if ps.title.contains(titleLower) {
+                    if runCmuxCommand(cmux, args: ["focus-pane", "--pane", ps.pane]) {
+                        logger.info("Focused pane \(ps.pane) by title: \(title, privacy: .public)")
+                        return true
+                    }
+                }
+            }
+
+            // Also try find-window for workspace-level match
             if runCmuxCommand(cmux, args: ["find-window", "--select", title]) {
-                logger.info("Focused cmux by workspace title: \(title, privacy: .public)")
+                logger.info("Focused workspace by title: \(title, privacy: .public)")
                 return true
             }
         }
