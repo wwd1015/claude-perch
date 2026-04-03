@@ -27,6 +27,17 @@ struct NotchView: View {
     @State private var isHovering: Bool = false
     @State private var isBouncing: Bool = false
 
+    // Settings (wired to SettingsWindow toggles)
+    @AppStorage("hideInFullscreen") private var hideInFullscreen = true
+    @AppStorage("autoHideNoSessions") private var autoHideNoSessions = false
+    @AppStorage("smartSuppression") private var smartSuppression = true
+    @AppStorage("autoCollapse") private var autoCollapse = true
+    @AppStorage("soundEnabled") private var soundEnabled = true
+    @AppStorage("soundVolume") private var soundVolume = 0.3
+    @AppStorage("soundSessionStart") private var soundSessionStart = true
+    @AppStorage("soundTaskComplete") private var soundTaskComplete = true
+    @AppStorage("soundApprovalNeeded") private var soundApprovalNeeded = true
+
     @Namespace private var activityNamespace
 
     /// Whether any Claude session is currently processing or compacting
@@ -449,7 +460,9 @@ struct NotchView: View {
             // Don't hide on non-notched devices - users need a visible target
             guard viewModel.hasPhysicalNotch else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                if viewModel.status == .closed && !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && !activityCoordinator.expandingActivity.show {
+                let noActivity = !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && !activityCoordinator.expandingActivity.show
+                let noSessions = sessionMonitor.instances.isEmpty
+                if viewModel.status == .closed && (noActivity || (autoHideNoSessions && noSessions)) {
                     isVisible = false
                 }
             }
@@ -462,21 +475,31 @@ struct NotchView: View {
 
         if !newPendingIds.isEmpty {
             // Play urgent notification sound for new permission requests
-            if let soundName = AppSettings.urgentNotificationSound.soundName {
+            if soundEnabled && soundApprovalNeeded,
+               let soundName = AppSettings.urgentNotificationSound.soundName {
                 let newSessions = sessions.filter { newPendingIds.contains($0.stableId) }
+                let volume = soundVolume
                 Task {
                     let shouldPlay = await shouldPlayNotificationSound(for: newSessions)
                     if shouldPlay {
                         await MainActor.run {
-                            NSSound(named: soundName)?.play()
+                            if let sound = NSSound(named: soundName) {
+                                sound.volume = Float(volume)
+                                sound.play()
+                            }
                         }
                     }
                 }
             }
 
-            // Always pop the notch open for permission requests
+            // Pop the notch open for permission requests
+            // Smart suppression: don't expand if terminal is focused
             if viewModel.status == .closed {
-                viewModel.notchOpen(reason: .notification)
+                if smartSuppression && TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
+                    // Terminal is focused, just bounce instead of expanding
+                } else {
+                    viewModel.notchOpen(reason: .notification)
+                }
             }
         }
 
@@ -506,22 +529,31 @@ struct NotchView: View {
             // Get the sessions that just entered waitingForInput
             let newlyWaitingSessions = waitingForInputSessions.filter { newWaitingIds.contains($0.stableId) }
 
-            // Play notification sound if the session is not actively focused
-            if let soundName = AppSettings.notificationSound.soundName {
-                // Check if we should play sound (async check for tmux pane focus)
+            // Play task complete sound (respects settings)
+            if soundEnabled && soundTaskComplete,
+               let soundName = AppSettings.notificationSound.soundName {
+                let volume = soundVolume
                 Task {
                     let shouldPlaySound = await shouldPlayNotificationSound(for: newlyWaitingSessions)
                     if shouldPlaySound {
                         await MainActor.run {
-                            NSSound(named: soundName)?.play()
+                            if let sound = NSSound(named: soundName) {
+                                sound.volume = Float(volume)
+                                sound.play()
+                            }
                         }
                     }
                 }
             }
 
-            // Open the notch panel to show "Done" state (like Vibe Island)
+            // Open the notch panel to show "Done" state
+            // Smart suppression: don't expand if terminal is focused
             if viewModel.status == .closed {
-                viewModel.notchOpen(reason: .notification)
+                if smartSuppression && TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
+                    // Terminal is focused, just bounce
+                } else {
+                    viewModel.notchOpen(reason: .notification)
+                }
             }
 
             // Trigger bounce animation to get user's attention
@@ -563,34 +595,78 @@ struct NotchView: View {
     // MARK: - Global Hotkeys
 
     private func startGlobalHotkeys() {
-        GlobalHotkeyManager.shared.start(
-            onApprove: { [weak sessionMonitor] in
-                guard let monitor = sessionMonitor else { return }
-                let pending = monitor.instances.filter { $0.phase.isWaitingForApproval }
-                    .sorted { ($0.lastActivity) > ($1.lastActivity) }
-                if let session = pending.first {
-                    monitor.approvePermission(sessionId: session.sessionId)
-                }
-            },
-            onDeny: { [weak sessionMonitor] in
-                guard let monitor = sessionMonitor else { return }
-                let pending = monitor.instances.filter { $0.phase.isWaitingForApproval }
-                    .sorted { ($0.lastActivity) > ($1.lastActivity) }
-                if let session = pending.first {
-                    monitor.denyPermission(sessionId: session.sessionId, reason: nil)
-                }
-            },
-            onSelectOption: { [weak sessionMonitor] index in
-                // For AskUserQuestion: select option by Cmd+1-9
-                guard let monitor = sessionMonitor else { return }
-                let pending = monitor.instances.filter {
-                    $0.phase.isWaitingForApproval && $0.pendingToolName == "AskUserQuestion"
-                }
-                if let session = pending.first {
-                    // Answer with the option label (the chat handler will find it)
-                    monitor.approvePermission(sessionId: session.sessionId)
+        let manager = GlobalHotkeyManager.shared
+
+        // ^G - Toggle panel open/close
+        manager.onTogglePanel = { [weak self] in
+            guard let self = self else { return }
+            if self.viewModel.status == .opened {
+                self.viewModel.notchClose()
+            } else {
+                self.viewModel.notchOpen(reason: .click)
+            }
+        }
+
+        // ^Y - Approve
+        manager.onApprove = { [weak sessionMonitor] in
+            guard let monitor = sessionMonitor else { return }
+            if let session = monitor.instances.first(where: { $0.phase.isWaitingForApproval }) {
+                monitor.approvePermission(sessionId: session.sessionId)
+            }
+        }
+
+        // ^N - Deny
+        manager.onDeny = { [weak sessionMonitor] in
+            guard let monitor = sessionMonitor else { return }
+            if let session = monitor.instances.first(where: { $0.phase.isWaitingForApproval }) {
+                monitor.denyPermission(sessionId: session.sessionId, reason: nil)
+            }
+        }
+
+        // ^A - Always Allow (same as approve for now)
+        manager.onAlwaysAllow = { [weak sessionMonitor] in
+            guard let monitor = sessionMonitor else { return }
+            if let session = monitor.instances.first(where: { $0.phase.isWaitingForApproval }) {
+                monitor.approvePermission(sessionId: session.sessionId)
+            }
+        }
+
+        // ^B - Bypass Permissions (same as approve for now)
+        manager.onBypass = { [weak sessionMonitor] in
+            guard let monitor = sessionMonitor else { return }
+            if let session = monitor.instances.first(where: { $0.phase.isWaitingForApproval }) {
+                monitor.approvePermission(sessionId: session.sessionId)
+            }
+        }
+
+        // ^T - Jump to Terminal (most active session)
+        manager.onJumpToTerminal = { [weak sessionMonitor] in
+            guard let monitor = sessionMonitor else { return }
+            let active = monitor.instances.first(where: { $0.phase.isWaitingForApproval })
+                ?? monitor.instances.first(where: { $0.phase == .waitingForInput })
+                ?? monitor.instances.first(where: { $0.phase == .processing })
+                ?? monitor.instances.first
+            if let session = active {
+                Task {
+                    _ = await AppFocusManager.shared.focusSession(
+                        pid: session.pid, cwd: session.cwd, isInTmux: session.isInTmux,
+                        sessionTitle: session.displayTitle, sessionId: session.sessionId,
+                        sessionSummary: session.summary
+                    )
                 }
             }
-        )
+        }
+
+        // ^1-9 - Select question option
+        manager.onSelectOption = { [weak sessionMonitor] index in
+            guard let monitor = sessionMonitor else { return }
+            if let session = monitor.instances.first(where: {
+                $0.phase.isWaitingForApproval && $0.pendingToolName == "AskUserQuestion"
+            }) {
+                monitor.approvePermission(sessionId: session.sessionId)
+            }
+        }
+
+        manager.start()
     }
 }

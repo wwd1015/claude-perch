@@ -2,10 +2,12 @@
 //  GlobalHotkeyManager.swift
 //  ClaudeIsland
 //
-//  Global keyboard shortcuts for approving/denying permissions.
-//  Two tiers:
-//    Global (works from any app): Ctrl+Shift+A/D
-//    Cmd shortcuts (shown in buttons): Cmd+Y/N for approve/deny, Cmd+1-9 for question options
+//  Global keyboard shortcuts matching Vibe Island:
+//  ^G = Toggle panel (open/close notch from anywhere)
+//  ^Y = Approve    ^N = Deny
+//  ^A = Always Allow    ^B = Bypass Permissions
+//  ^T = Jump to Terminal
+//  ^1-9 = Select question option
 //
 
 import AppKit
@@ -19,37 +21,33 @@ class GlobalHotkeyManager {
 
     private var globalMonitor: Any?
     private var localMonitor: Any?
-    private var approveHandler: (() -> Void)?
-    private var denyHandler: (() -> Void)?
-    /// Called with option index (0-based) when Cmd+1-9 is pressed
-    private var optionHandler: ((Int) -> Void)?
+
+    // Callbacks
+    var onTogglePanel: (() -> Void)?
+    var onApprove: (() -> Void)?
+    var onDeny: (() -> Void)?
+    var onAlwaysAllow: (() -> Void)?
+    var onBypass: (() -> Void)?
+    var onJumpToTerminal: (() -> Void)?
+    var onSelectOption: ((Int) -> Void)?
 
     private init() {}
 
-    /// Start listening for global hotkeys.
-    func start(
-        onApprove: @escaping () -> Void,
-        onDeny: @escaping () -> Void,
-        onSelectOption: ((Int) -> Void)? = nil
-    ) {
-        approveHandler = onApprove
-        denyHandler = onDeny
-        optionHandler = onSelectOption
-
-        // Global monitor: Ctrl+Shift+A/D (works even when app is not focused)
+    func start() {
+        // Global monitor: works even when app is not focused
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleGlobalKeyEvent(event)
+            self?.handleKeyEvent(event)
         }
 
-        // Local monitor: Cmd+Y/N and Cmd+1-9 (works when our window is active)
+        // Local monitor: works when our window is active
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if self?.handleLocalKeyEvent(event) == true {
+            if self?.handleKeyEvent(event) == true {
                 return nil // Consume the event
             }
             return event
         }
 
-        logger.info("Hotkey monitors started (global: Ctrl+Shift+A/D, local: Cmd+Y/N/1-9)")
+        logger.info("Hotkey monitors started (^G/Y/N/A/B/T/1-9)")
     }
 
     func stop() {
@@ -57,53 +55,56 @@ class GlobalHotkeyManager {
         if let m = localMonitor { NSEvent.removeMonitor(m); localMonitor = nil }
     }
 
-    // MARK: - Global: Ctrl+Shift+A/D
-
-    private func handleGlobalKeyEvent(_ event: NSEvent) {
-        let requiredFlags: NSEvent.ModifierFlags = [.control, .shift]
-        let forbiddenFlags: NSEvent.ModifierFlags = [.command, .option]
-
-        guard event.modifierFlags.contains(requiredFlags),
-              !event.modifierFlags.contains(forbiddenFlags) else { return }
+    /// Handle a key event. Returns true if consumed.
+    @discardableResult
+    private func handleKeyEvent(_ event: NSEvent) -> Bool {
+        // Require Control key, no Cmd or Option
+        guard event.modifierFlags.contains(.control),
+              !event.modifierFlags.contains(.command),
+              !event.modifierFlags.contains(.option) else { return false }
 
         switch event.keyCode {
-        case 0:  // 'A' key
-            logger.info("Hotkey: Ctrl+Shift+A (approve)")
-            Task { @MainActor in self.approveHandler?() }
-        case 2:  // 'D' key
-            logger.info("Hotkey: Ctrl+Shift+D (deny)")
-            Task { @MainActor in self.denyHandler?() }
+        case 5:  // 'G' key - Toggle panel
+            logger.info("Hotkey: ^G (toggle panel)")
+            Task { @MainActor in self.onTogglePanel?() }
+            return true
+
+        case 16: // 'Y' key - Approve
+            logger.info("Hotkey: ^Y (approve)")
+            Task { @MainActor in self.onApprove?() }
+            return true
+
+        case 45: // 'N' key - Deny
+            logger.info("Hotkey: ^N (deny)")
+            Task { @MainActor in self.onDeny?() }
+            return true
+
+        case 0:  // 'A' key - Always Allow
+            logger.info("Hotkey: ^A (always allow)")
+            Task { @MainActor in self.onAlwaysAllow?() }
+            return true
+
+        case 11: // 'B' key - Bypass
+            logger.info("Hotkey: ^B (bypass)")
+            Task { @MainActor in self.onBypass?() }
+            return true
+
+        case 17: // 'T' key - Jump to Terminal
+            logger.info("Hotkey: ^T (jump to terminal)")
+            Task { @MainActor in self.onJumpToTerminal?() }
+            return true
+
         default:
             break
         }
-    }
 
-    // MARK: - Local: Cmd+Y/N and Cmd+1-9
-
-    /// Returns true if the event was consumed
-    private func handleLocalKeyEvent(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.contains(.command) else { return false }
-
-        switch event.keyCode {
-        case 16:  // 'Y' key
-            logger.info("Hotkey: Cmd+Y (allow)")
-            approveHandler?()
-            return true
-        case 45:  // 'N' key
-            logger.info("Hotkey: Cmd+N (deny)")
-            denyHandler?()
-            return true
-        default:
-            break
-        }
-
-        // Cmd+1 through Cmd+9 for question options
+        // ^1 through ^9 for question options
         if let chars = event.charactersIgnoringModifiers,
            let digit = chars.first,
            digit >= "1" && digit <= "9" {
             let index = Int(String(digit))! - 1
-            logger.info("Hotkey: Cmd+\(index + 1) (select option)")
-            optionHandler?(index)
+            logger.info("Hotkey: ^\(index + 1) (select option)")
+            Task { @MainActor in self.onSelectOption?(index) }
             return true
         }
 

@@ -71,11 +71,25 @@ struct PermissionDetailView: View {
             if context.toolName != "AskUserQuestion" {
                 approvalButtons
             }
+
+            // "Show all N sessions" link (like Vibe Island)
+            if sessionCount > 1 {
+                Button {} label: {
+                    Text("Show all \(sessionCount) sessions")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.4))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(12)
         .background(Color.white.opacity(0.04))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
+
+    /// Number of active sessions (passed from parent)
+    private var sessionCount: Int { 1 } // TODO: pass from parent
 
     // MARK: - Edit Diff (matches Vibe Island: line numbers + red/green)
 
