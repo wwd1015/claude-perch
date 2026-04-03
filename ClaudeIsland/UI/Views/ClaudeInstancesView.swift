@@ -272,11 +272,15 @@ struct InstanceRow: View {
         return isHovered ? Color.white.opacity(0.06) : Color.clear
     }
 
-    // MARK: - Subtitle
+    // MARK: - Subtitle (matches Vibe Island: user msg gray + activity blue)
+
+    /// Accent color for live activity text (blue like Vibe Island)
+    private let activityBlue = Color(red: 0.4, green: 0.6, blue: 1.0)
 
     @ViewBuilder
     private var subtitleView: some View {
         if isWaitingForApproval, let toolName = session.pendingToolName {
+            // Permission request
             HStack(spacing: 4) {
                 Text(MCPToolFormatter.formatToolName(toolName))
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -286,16 +290,14 @@ struct InstanceRow: View {
                     .foregroundColor(.white.opacity(0.5))
             }
         } else if session.phase == .waitingForInput {
-            // "Done" state: show last activity + "click to jump"
+            // Done state: last message + "Done click to jump"
             VStack(alignment: .leading, spacing: 3) {
-                // Last activity (what Claude was doing)
                 if let msg = session.lastMessage {
                     Text(msg)
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.5))
                         .lineLimit(1)
                 }
-                // "Done, click to jump" bar
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 10))
@@ -308,47 +310,37 @@ struct InstanceRow: View {
                         .foregroundColor(.white.opacity(0.4))
                 }
             }
-        } else if let role = session.lastMessageRole {
-            switch role {
-            case "tool":
-                HStack(spacing: 4) {
-                    if let toolName = session.lastToolName {
-                        Text(MCPToolFormatter.formatToolName(toolName))
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.5))
-                    }
-                    if let input = session.lastMessage {
-                        Text(input)
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.4))
-                            .lineLimit(1)
-                    }
-                }
-            case "user":
-                HStack(spacing: 4) {
-                    Text("You:")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
-                    if let msg = session.lastMessage {
-                        Text(msg)
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.4))
-                            .lineLimit(1)
-                    }
-                }
-            default:
-                if let msg = session.lastMessage {
-                    Text(msg)
+        } else if session.phase == .processing || session.phase == .compacting {
+            // Active processing: show "You: message" + current tool in blue
+            VStack(alignment: .leading, spacing: 2) {
+                // Last user message in gray (like "You: fix the auth bug")
+                if let firstMsg = session.firstUserMessage {
+                    Text("You: \(SessionState.cleanText(firstMsg))")
                         .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundColor(.white.opacity(0.45))
+                        .lineLimit(1)
+                }
+                // Current tool activity in blue (like "Writing middleware.ts")
+                if let toolName = session.lastToolName, let toolInput = session.lastMessage {
+                    Text("\(MCPToolFormatter.formatToolName(toolName)) \(toolInput)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(activityBlue)
+                        .lineLimit(1)
+                } else if let msg = session.lastMessage {
+                    Text(msg)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(activityBlue)
                         .lineLimit(1)
                 }
             }
-        } else if let lastMsg = session.lastMessage {
-            Text(lastMsg)
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.4))
-                .lineLimit(1)
+        } else {
+            // Idle: just show last message
+            if let msg = session.lastMessage {
+                Text(msg)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
+                    .lineLimit(1)
+            }
         }
     }
 

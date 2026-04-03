@@ -167,7 +167,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
     }
 
     /// Clean text: strip XML/HTML tags, collapse whitespace, truncate
-    private static func cleanText(_ text: String) -> String {
+    static func cleanText(_ text: String) -> String {
         let cleaned = text.replacingOccurrences(
             of: "<[^>]+>",
             with: "",
