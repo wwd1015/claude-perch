@@ -286,29 +286,28 @@ struct InstanceRow: View {
                     .foregroundColor(.white.opacity(0.5))
             }
         } else if session.phase == .waitingForInput {
-            // "Done, click to jump" - prominent action bar
-            Button { onFocus() } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(TerminalColors.green)
-                    Text("Done")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(TerminalColors.green)
-                    Text("click to jump")
+            // "Done" state: show last activity + "click to jump"
+            VStack(alignment: .leading, spacing: 3) {
+                // Last activity (what Claude was doing)
+                if let msg = session.lastMessage {
+                    Text(msg)
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.5))
-                    Spacer()
-                    Image(systemName: "arrow.right.circle")
-                        .font(.system(size: 12))
+                        .lineLimit(1)
+                }
+                // "Done, click to jump" bar
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(TerminalColors.green)
+                    Text("Done")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(TerminalColors.green)
+                    Text("click to jump")
+                        .font(.system(size: 10))
                         .foregroundColor(.white.opacity(0.4))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(TerminalColors.green.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
-            .buttonStyle(.plain)
         } else if let role = session.lastMessageRole {
             switch role {
             case "tool":

@@ -38,21 +38,17 @@ actor AppFocusManager {
     /// Runs cmux on a background thread with a timeout to prevent UI freezes.
     func focusSession(pid: Int?, cwd: String, isInTmux: Bool, sessionTitle: String? = nil) async -> Bool {
         if let cmux = cmuxPath {
-            // Run cmux on a detached task to avoid blocking the actor
             let cmuxPath = cmux
             let title = sessionTitle
             let dir = cwd
 
-            let focused = await Task.detached(priority: .userInitiated) {
+            // Switch cmux to the right workspace/surface
+            let _ = await Task.detached(priority: .userInitiated) {
                 return Self.runCmuxFocus(cmux: cmuxPath, title: title, cwd: dir)
             }.value
-
-            if focused {
-                return true
-            }
         }
 
-        // Fallback: just activate the terminal app
+        // Always activate the terminal app to bring it to front
         return Self.activateTerminalApp()
     }
 
@@ -61,7 +57,7 @@ actor AppFocusManager {
     /// Run cmux commands synchronously with a 2-second timeout.
     /// This is nonisolated and runs on a background thread to prevent actor deadlocks.
     private nonisolated static func runCmuxFocus(cmux: String, title: String?, cwd: String) -> Bool {
-        // Try find-window --select with session title
+        // Strategy 1: search by session title in workspace names
         if let title = title, !title.isEmpty {
             if runCmuxCommand(cmux, args: ["find-window", "--select", title]) {
                 logger.info("Focused cmux by title: \(title, privacy: .public)")
@@ -69,7 +65,13 @@ actor AppFocusManager {
             }
         }
 
-        // Try with directory name
+        // Strategy 2: search terminal content by full working directory path
+        if runCmuxCommand(cmux, args: ["find-window", "--content", "--select", cwd]) {
+            logger.info("Focused cmux by cwd content: \(cwd, privacy: .public)")
+            return true
+        }
+
+        // Strategy 3: search by directory name
         let dirName = URL(fileURLWithPath: cwd).lastPathComponent
         if runCmuxCommand(cmux, args: ["find-window", "--select", dirName]) {
             logger.info("Focused cmux by dir: \(dirName, privacy: .public)")

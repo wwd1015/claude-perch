@@ -124,23 +124,38 @@ struct SessionState: Equatable, Identifiable, Sendable {
         return sessionId
     }
 
-    /// Display title: summary > command args > last message > project name
+    /// Display title: summary > meaningful command args > project name
+    /// Skips raw command names, XML metadata, and skill templates
     var displayTitle: String {
         if let summary = conversationInfo.summary {
-            return Self.cleanText(summary)
+            let cleaned = Self.cleanText(summary)
+            if !cleaned.isEmpty { return cleaned }
         }
         if let firstMsg = conversationInfo.firstUserMessage {
             // Extract <command-args> content if present (gstack skill invocations)
             if let args = Self.extractCommandArgs(firstMsg), !args.isEmpty {
                 return Self.cleanText(args)
             }
-            // Skip if it's just a command name with no useful content
+            // Try cleaning and check if it's meaningful
             let cleaned = Self.cleanText(firstMsg)
-            if !cleaned.isEmpty && cleaned != "office-hours" && cleaned != "resume" && !cleaned.hasPrefix("Base directory") {
+            if Self.isMeaningfulTitle(cleaned) {
                 return cleaned
             }
         }
         return projectName
+    }
+
+    /// Check if a cleaned title string is meaningful (not just a command or metadata)
+    private static func isMeaningfulTitle(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        // Skip common command names and metadata prefixes
+        let skipPrefixes = ["office-hours", "resume", "Base directory", "Caveat:", "local-command"]
+        for prefix in skipPrefixes {
+            if text.hasPrefix(prefix) { return false }
+        }
+        // Skip if too short (likely just a command name)
+        if text.count < 5 { return false }
+        return true
     }
 
     /// Extract content from <command-args> tags

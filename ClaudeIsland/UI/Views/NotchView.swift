@@ -522,10 +522,14 @@ struct NotchView: View {
                 }
             }
 
+            // Open the notch panel to show "Done" state (like Vibe Island)
+            if viewModel.status == .closed {
+                viewModel.notchOpen(reason: .notification)
+            }
+
             // Trigger bounce animation to get user's attention
             DispatchQueue.main.async {
                 isBouncing = true
-                // Bounce back after a short delay
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     isBouncing = false
                 }
