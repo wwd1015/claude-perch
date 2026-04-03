@@ -198,10 +198,10 @@ struct InstanceRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Main row: status dot + title + actions
+            // Main row: pixel icon + title + badges
             HStack(alignment: .center, spacing: 10) {
-                stateIndicator
-                    .frame(width: 14)
+                SessionPixelIcon(sessionId: session.sessionId, phase: session.phase)
+                    .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 2) {
                     // Title: "project . session-summary" like Vibe Island
@@ -334,25 +334,17 @@ struct InstanceRow: View {
                     .foregroundColor(.white.opacity(0.5))
             }
         } else if session.phase == .waitingForInput {
-            // Done state: last message + "Done click to jump"
-            VStack(alignment: .leading, spacing: 3) {
+            // "Ready" state like Vibe Island (green text, click anywhere to jump)
+            VStack(alignment: .leading, spacing: 2) {
                 if let msg = session.lastMessage {
                     Text(msg)
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.5))
                         .lineLimit(1)
                 }
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(TerminalColors.green)
-                    Text("Done")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(TerminalColors.green)
-                    Text("click to jump")
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.4))
-                }
+                Text("Ready")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(TerminalColors.green)
             }
         } else {
             // Active or idle: show both user msg + assistant msg like Vibe Island
@@ -433,6 +425,60 @@ struct ProjectGroupHeader: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Session Pixel Icon (unique colored icon per session like Vibe Island)
+
+struct SessionPixelIcon: View {
+    let sessionId: String
+    let phase: SessionPhase
+
+    /// Generate two colors from session ID hash for a unique pixel pattern
+    private var colors: (Color, Color) {
+        let hash = abs(sessionId.hashValue)
+        let hue1 = Double(hash % 360) / 360.0
+        let hue2 = Double((hash / 360) % 360) / 360.0
+        return (
+            Color(hue: hue1, saturation: 0.7, brightness: 0.8),
+            Color(hue: hue2, saturation: 0.6, brightness: 0.7)
+        )
+    }
+
+    /// Generate a 4x4 pixel pattern from session ID
+    private var pattern: [[Bool]] {
+        let hash = abs(sessionId.hashValue)
+        var grid: [[Bool]] = []
+        for row in 0..<4 {
+            var line: [Bool] = []
+            for col in 0..<2 {
+                // Use bits from hash to determine pixel state
+                let bit = (hash >> (row * 2 + col)) & 1
+                line.append(bit == 1)
+            }
+            // Mirror for symmetry
+            line.append(contentsOf: line.reversed())
+            grid.append(line)
+        }
+        return grid
+    }
+
+    var body: some View {
+        let (color1, color2) = colors
+        let grid = pattern
+
+        VStack(spacing: 1) {
+            ForEach(0..<4, id: \.self) { row in
+                HStack(spacing: 1) {
+                    ForEach(0..<4, id: \.self) { col in
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(grid[row][col] ? color1 : color2.opacity(0.3))
+                            .frame(width: 5, height: 5)
+                    }
+                }
+            }
+        }
+        .opacity(phase == .idle || phase == .ended ? 0.5 : 1.0)
     }
 }
 
