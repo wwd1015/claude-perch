@@ -155,11 +155,22 @@ struct InstanceRow: View {
     private let spinnerSymbols = ["·", "✢", "✳", "∗", "✻", "✽"]
     private let spinnerTimer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
 
-    /// Terminal app name based on TTY (displayed like Vibe Island "Claude iTerm 7m")
+    /// Terminal app name
     private var terminalName: String {
         if session.isInTmux { return "tmux" }
-        // Default to Ghostty since the user uses cmux/Ghostty
-        return "Ghostty"
+        return "cmux"
+    }
+
+    /// Vibe Island-style title: "project . session-summary"
+    private var vibeIslandTitle: String {
+        let project = session.projectName
+        if let summary = session.summary {
+            let cleaned = SessionState.cleanText(summary)
+            if !cleaned.isEmpty && cleaned != project {
+                return "\(project) · \(cleaned)"
+            }
+        }
+        return project
     }
 
     /// Format time active as compact string (e.g., "4m", "1h 12m")
@@ -193,28 +204,56 @@ struct InstanceRow: View {
                     .frame(width: 14)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    // Title row: session name + terminal + time (like Vibe Island)
-                    HStack(spacing: 6) {
-                        Text(session.displayTitle)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-
-                        Text(terminalName)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.white.opacity(0.3))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.white.opacity(0.06))
-                            .clipShape(RoundedRectangle(cornerRadius: 3))
-                    }
+                    // Title: "project . session-summary" like Vibe Island
+                    Text(vibeIslandTitle)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
 
                     subtitleView
                 }
 
                 Spacer(minLength: 0)
 
-                actionButtons
+                // Right side badges: Claude, cmux, time, jump
+                HStack(spacing: 6) {
+                    // Agent badge
+                    Text("Claude")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                    // Terminal badge
+                    Text(terminalName.lowercased())
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                    // Time badge
+                    if let time = timeActive {
+                        Text(time)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+
+                    // Jump shortcut (like Vibe Island's ^G ↗)
+                    Button { onFocus() } label: {
+                        Text("^G ↗")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.4))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.06))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(.leading, 8)
             .padding(.trailing, 14)
@@ -233,12 +272,17 @@ struct InstanceRow: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Activity log - always visible when session has tool history
+            // Chat + activity view (like Vibe Island's expanded conversation)
             if !isWaitingForApproval && !session.chatItems.isEmpty {
-                ActivityLogView(session: session)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                VStack(alignment: .leading, spacing: 4) {
+                    // Recent conversation messages
+                    ConversationPreview(session: session)
+                    // Tool activity below
+                    ActivityLogView(session: session)
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .contentShape(Rectangle())
@@ -310,79 +354,38 @@ struct InstanceRow: View {
                         .foregroundColor(.white.opacity(0.4))
                 }
             }
-        } else if session.phase == .processing || session.phase == .compacting {
-            // Active processing: show "You: message" + current tool in blue
+        } else {
+            // Active or idle: show both user msg + assistant msg like Vibe Island
             VStack(alignment: .leading, spacing: 2) {
-                // Last user message in gray (like "You: fix the auth bug")
+                // User message in gray: "You: fix the auth bug"
                 if let firstMsg = session.firstUserMessage {
                     Text("You: \(SessionState.cleanText(firstMsg))")
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.45))
                         .lineLimit(1)
                 }
-                // Current tool activity in blue (like "Writing middleware.ts")
-                if let toolName = session.lastToolName, let toolInput = session.lastMessage {
-                    Text("\(MCPToolFormatter.formatToolName(toolName)) \(toolInput)")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(activityBlue)
-                        .lineLimit(1)
+                // Assistant response or current tool activity
+                if session.phase == .processing || session.phase == .compacting {
+                    // Active: show current tool in blue
+                    if let toolName = session.lastToolName, let toolInput = session.lastMessage {
+                        Text("\(MCPToolFormatter.formatToolName(toolName)) \(toolInput)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(activityBlue)
+                            .lineLimit(1)
+                    }
                 } else if let msg = session.lastMessage {
+                    // Idle: show last assistant message
                     Text(msg)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(activityBlue)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.7))
                         .lineLimit(1)
                 }
             }
-        } else {
-            // Idle: just show last message
-            if let msg = session.lastMessage {
-                Text(msg)
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.4))
-                    .lineLimit(1)
-            }
         }
     }
 
-    // MARK: - Action Buttons
-
-    @ViewBuilder
-    private var actionButtons: some View {
-        if isWaitingForApproval {
-            // Approval actions are in the expanded PermissionDetailView below
-            HStack(spacing: 8) {
-                IconButton(icon: "bubble.left") { onChat() }
-                IconButton(icon: "eye") { onFocus() }
-            }
-            .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        } else if session.phase == .waitingForInput {
-            // "Done" state: prominent jump button
-            HStack(spacing: 8) {
-                if let time = timeActive {
-                    Text(time)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.3))
-                }
-                TerminalButton(isEnabled: true, onTap: { onFocus() })
-                IconButton(icon: "archivebox") { onArchive() }
-            }
-            .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        } else {
-            HStack(spacing: 8) {
-                if let time = timeActive {
-                    Text(time)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.3))
-                }
-                IconButton(icon: "bubble.left") { onChat() }
-                IconButton(icon: "eye") { onFocus() }
-                if session.phase == .idle {
-                    IconButton(icon: "archivebox") { onArchive() }
-                }
-            }
-            .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        }
-    }
+    // Action buttons removed — badges (Claude, cmux, time, ^G ↗) are now
+    // inline in the title row. Permission UI is in PermissionDetailView below.
 
     @ViewBuilder
     private var stateIndicator: some View {
@@ -430,6 +433,71 @@ struct ProjectGroupHeader: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Conversation Preview (Vibe Island-style chat in expanded card)
+
+struct ConversationPreview: View {
+    let session: SessionState
+
+    /// Extract recent user + assistant messages
+    private var recentMessages: [(id: String, role: String, text: String)] {
+        var messages: [(id: String, role: String, text: String)] = []
+        for item in session.chatItems.suffix(20) {
+            switch item.type {
+            case .user(let text):
+                let cleaned = SessionState.cleanText(text)
+                if !cleaned.isEmpty && cleaned.count > 5 {
+                    messages.append((id: item.id, role: "user", text: cleaned))
+                }
+            case .assistant(let text):
+                let cleaned = SessionState.cleanText(text)
+                if !cleaned.isEmpty && cleaned.count > 5 {
+                    messages.append((id: item.id, role: "assistant", text: cleaned))
+                }
+            default:
+                break
+            }
+        }
+        return Array(messages.suffix(4)) // Last 4 messages
+    }
+
+    var body: some View {
+        if recentMessages.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(recentMessages, id: \.id) { msg in
+                    HStack(alignment: .top, spacing: 6) {
+                        if msg.role == "user" {
+                            Text("You:")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.white.opacity(0.5))
+                            Text(msg.text)
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.5))
+                                .lineLimit(2)
+                        } else {
+                            Text(msg.text)
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.75))
+                                .lineLimit(3)
+                        }
+                        Spacer(minLength: 0)
+                        if msg.role == "assistant" {
+                            Text("Done")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.white.opacity(0.3))
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(msg.role == "user" ? Color.white.opacity(0.04) : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+            }
+        }
     }
 }
 
