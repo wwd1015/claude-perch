@@ -222,14 +222,14 @@ struct NotchView: View {
     @ViewBuilder
     private var notchLayout: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header row - always present, contains crab and spinner that persist across states
-            headerRow
-                .frame(height: max(24, closedNotchSize.height))
-
-            // Status strip - colored dots showing session status when closed
+            // Closed with sessions: show Vibe Island-style status strip instead of crab
             if viewModel.status != .opened && !sessionMonitor.instances.isEmpty {
                 statusStrip
-                    .padding(.bottom, 4)
+                    .frame(height: max(24, closedNotchSize.height))
+            } else {
+                // Header row: crab + spinner (when opened or no sessions)
+                headerRow
+                    .frame(height: max(24, closedNotchSize.height))
             }
 
             // Main content only when opened
