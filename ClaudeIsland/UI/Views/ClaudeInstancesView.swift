@@ -310,8 +310,8 @@ struct InstanceRow: View {
 
     // MARK: - Subtitle (matches Vibe Island: user msg gray + activity blue)
 
-    /// Accent color for live activity text (blue like Vibe Island)
-    private let activityBlue = Color(red: 0.4, green: 0.6, blue: 1.0)
+    /// Accent color for live activity text (green like Vibe Island)
+    private let activityGreen = Color(red: 0.3, green: 0.8, blue: 0.4)
 
     @ViewBuilder
     private var subtitleView: some View {
@@ -350,11 +350,11 @@ struct InstanceRow: View {
                 }
                 // Assistant response or current tool activity
                 if session.phase == .processing || session.phase == .compacting {
-                    // Active: show current tool in blue
+                    // Active: show current tool in green (like Vibe Island)
                     if let toolName = session.lastToolName, let toolInput = session.lastMessage {
                         Text("\(MCPToolFormatter.formatToolName(toolName)) \(toolInput)")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(activityBlue)
+                            .foregroundColor(activityGreen)
                             .lineLimit(1)
                     }
                 } else if let msg = session.lastMessage {

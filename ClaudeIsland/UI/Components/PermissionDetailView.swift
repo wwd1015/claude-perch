@@ -209,45 +209,66 @@ struct PermissionDetailView: View {
         }
     }
 
-    // MARK: - AskUserQuestion (matches Vibe Island: teal option buttons)
+    // MARK: - AskUserQuestion (Vibe Island: "Claude's Question" + option cards)
 
     private var askUserQuestionView: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Header
+            // Header: orange heart + "Claude's Question"
             HStack(spacing: 6) {
-                Text("Claude asks")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.5))
+                Text("🧡")
+                    .font(.system(size: 12))
+                Text("Claude's Question")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(TerminalColors.amber)
             }
 
             // Question text
             if let question = extractQuestionText() {
                 Text(question)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.9))
-                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Option buttons (teal-tinted like Vibe Island)
-            let options = extractQuestionOptions()
+            // Option buttons with label + description (like Vibe Island)
+            let options = extractQuestionOptionsWithDescriptions()
             if !options.isEmpty {
                 VStack(spacing: 5) {
                     ForEach(Array(options.enumerated()), id: \.offset) { index, option in
                         Button {
-                            onAnswer?(option)
+                            onAnswer?(option.label)
                         } label: {
-                            HStack(spacing: 8) {
-                                Text("\u{2318}\(index + 1)")
-                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                    .foregroundColor(.white.opacity(0.5))
-                                Text(option)
-                                    .font(.system(size: 13, weight: .medium))
+                            HStack(spacing: 10) {
+                                // Number badge
+                                Text("\(index + 1)")
+                                    .font(.system(size: 12, weight: .bold))
                                     .foregroundColor(.white)
+                                    .frame(width: 24, height: 24)
+                                    .background(Color.white.opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                                // Label + description
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(option.label)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(.white)
+                                    if let desc = option.description {
+                                        Text(desc)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.white.opacity(0.5))
+                                    }
+                                }
+
                                 Spacer()
+
+                                // Shortcut
+                                Text("^\(index + 1)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.3))
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(Color(red: 0.15, green: 0.35, blue: 0.35)) // Teal tint
+                            .background(Color(red: 0.12, green: 0.25, blue: 0.28))
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
@@ -341,6 +362,21 @@ struct PermissionDetailView: View {
            let first = questions.first,
            let options = first["options"] as? [[String: Any]] {
             return options.compactMap { $0["label"] as? String }
+        }
+        return []
+    }
+
+    /// Extract options with both label and description
+    private func extractQuestionOptionsWithDescriptions() -> [(label: String, description: String?)] {
+        guard let input = context.toolInput else { return [] }
+        if let questions = input["questions"]?.value as? [[String: Any]],
+           let first = questions.first,
+           let options = first["options"] as? [[String: Any]] {
+            return options.compactMap { opt -> (label: String, description: String?)? in
+                guard let label = opt["label"] as? String else { return nil }
+                let desc = opt["description"] as? String
+                return (label: label, description: desc)
+            }
         }
         return []
     }
