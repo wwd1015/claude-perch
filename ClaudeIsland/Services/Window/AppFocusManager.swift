@@ -3,13 +3,11 @@
 //  ClaudeIsland
 //
 //  Focuses terminal windows using cmux CLI or NSRunningApplication.
-//  Supports cmux (Ghostty-based multiplexer) and plain terminals.
 //
 
 import AppKit
 import os.log
 
-/// Focuses terminal apps and panes without requiring yabai
 actor AppFocusManager {
     static let shared = AppFocusManager()
 
@@ -23,199 +21,145 @@ actor AppFocusManager {
             "/usr/local/bin/cmux",
             "/opt/homebrew/bin/cmux"
         ]
-        var found: String? = nil
-        for path in paths {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                found = path
-                break
-            }
-        }
-        cmuxPath = found
+        cmuxPath = paths.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    /// Focus the terminal for a Claude session.
+    /// Focus the terminal for a Claude session
     func focusSession(pid: Int?, cwd: String, isInTmux: Bool, sessionTitle: String? = nil, sessionId: String? = nil, sessionSummary: String? = nil) async -> Bool {
-        if let cmux = cmuxPath {
-            let cmuxPath = cmux
-            let title = sessionTitle
-            let project = URL(fileURLWithPath: cwd).lastPathComponent
-            let sid = sessionId
-            let summary = sessionSummary
+        let cmux = cmuxPath
+        let project = URL(fileURLWithPath: cwd).lastPathComponent
+        let summary = sessionSummary
+        let sid = sessionId
 
-            let _ = await Task.detached(priority: .userInitiated) {
-                Self.focusViaCmux(cmux: cmuxPath, project: project, title: title, sessionId: sid, summary: summary)
-            }.value
+        // Run focus logic on a background thread to never block UI
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var focused = false
+
+                if let cmux = cmux {
+                    // Build search terms in priority order
+                    var searchTerms: [String] = []
+                    if let sid = sid { searchTerms.append(String(sid.prefix(8))) }
+                    if let summary = summary, !summary.isEmpty { searchTerms.append(summary) }
+                    searchTerms.append(project)
+
+                    focused = Self.focusCmuxPane(cmux: cmux, searchTerms: searchTerms)
+                }
+
+                // Always activate Ghostty/terminal
+                Self.activateGhostty()
+
+                continuation.resume(returning: focused)
+            }
         }
-
-        // Always activate the terminal app to bring it to front
-        return Self.activateTerminalApp()
     }
 
-    // MARK: - cmux Focus
+    // MARK: - cmux Pane Focus
 
-    /// Focus a session by finding its pane via surface title matching.
-    /// Tries: session ID prefix > project name > session title > workspace title
-    private nonisolated static func focusViaCmux(cmux: String, project: String, title: String?, sessionId: String?, summary: String? = nil) -> Bool {
-        // Get all panes
-        let panesOutput = runCmuxOutput(cmux, args: ["list-panes"])
-        guard let panesOutput = panesOutput else { return false }
+    /// Find and focus the right cmux pane by matching search terms against surface titles
+    private nonisolated static func focusCmuxPane(cmux: String, searchTerms: [String]) -> Bool {
+        // Get pane list
+        guard let panesRaw = shell(cmux, ["list-panes"]) else {
+            logger.warning("cmux list-panes failed")
+            return false
+        }
 
-        let paneIds = panesOutput.components(separatedBy: "\n")
+        let paneIds = panesRaw.components(separatedBy: "\n")
             .compactMap { line -> String? in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                    .replacingOccurrences(of: "* ", with: "")
-                guard let spaceIdx = trimmed.firstIndex(of: " ") else {
-                    return trimmed.isEmpty ? nil : trimmed
-                }
-                return String(trimmed[trimmed.startIndex..<spaceIdx])
+                guard let match = line.range(of: "pane:\\d+", options: .regularExpression) else { return nil }
+                return String(line[match])
             }
-            .filter { $0.hasPrefix("pane:") }
 
-        // Build a list of (paneId, surfaceTitle) pairs
-        var paneSurfaces: [(pane: String, title: String)] = []
+        // Get surface titles for each pane
         for paneId in paneIds {
-            if let output = runCmuxOutput(cmux, args: ["list-pane-surfaces", "--pane", paneId]) {
-                paneSurfaces.append((pane: paneId, title: output.lowercased()))
-            }
-        }
+            guard let surfaceRaw = shell(cmux, ["list-pane-surfaces", "--pane", paneId]) else { continue }
+            let titleLower = surfaceRaw.lowercased()
 
-        // Strategy 1: Match by session ID prefix (most precise)
-        // Surface titles end with session UUID like "· f392f138-87a8-4e"
-        if let sid = sessionId {
-            let shortId = String(sid.prefix(8)).lowercased()
-            for ps in paneSurfaces {
-                if ps.title.contains(shortId) {
-                    if runCmuxCommand(cmux, args: ["focus-pane", "--pane", ps.pane]) {
-                        logger.info("Focused pane \(ps.pane) by sessionId: \(shortId, privacy: .public)")
+            // Try each search term
+            for term in searchTerms {
+                if titleLower.contains(term.lowercased()) {
+                    if let _ = shell(cmux, ["focus-pane", "--pane", paneId]) {
+                        logger.info("Focused \(paneId) via '\(term, privacy: .public)'")
                         return true
                     }
                 }
             }
         }
 
-        // Strategy 2: Match by session summary (e.g., "mission-control-dashboard-review")
-        if let summary = summary, !summary.isEmpty {
-            let summaryLower = summary.lowercased()
-            for ps in paneSurfaces {
-                if ps.title.contains(summaryLower) {
-                    if runCmuxCommand(cmux, args: ["focus-pane", "--pane", ps.pane]) {
-                        logger.info("Focused pane \(ps.pane) by summary: \(summary, privacy: .public)")
-                        return true
-                    }
-                }
-            }
-        }
-
-        // Strategy 3: Match by project name
-        let projectLower = project.lowercased()
-        for ps in paneSurfaces {
-            if ps.title.contains(projectLower) {
-                if runCmuxCommand(cmux, args: ["focus-pane", "--pane", ps.pane]) {
-                    logger.info("Focused pane \(ps.pane) by project: \(project, privacy: .public)")
-                    return true
-                }
-            }
-        }
-
-        // Strategy 3: Match by session title/summary
-        if let title = title, !title.isEmpty {
-            let titleLower = title.lowercased()
-            for ps in paneSurfaces {
-                if ps.title.contains(titleLower) {
-                    if runCmuxCommand(cmux, args: ["focus-pane", "--pane", ps.pane]) {
-                        logger.info("Focused pane \(ps.pane) by title: \(title, privacy: .public)")
-                        return true
-                    }
-                }
-            }
-
-            // Also try find-window for workspace-level match
-            if runCmuxCommand(cmux, args: ["find-window", "--select", title]) {
-                logger.info("Focused workspace by title: \(title, privacy: .public)")
-                return true
-            }
-        }
-
+        logger.info("No cmux pane matched for terms: \(searchTerms, privacy: .public)")
         return false
     }
 
-    /// Run a cmux command and return stdout
-    private nonisolated static func runCmuxOutput(_ cmux: String, args: [String]) -> String? {
+    /// Run a shell command synchronously with 2s timeout, return stdout
+    private nonisolated static func shell(_ cmd: String, _ args: [String]) -> String? {
         let process = Process()
         let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: cmux)
+        process.executableURL = URL(fileURLWithPath: cmd)
         process.arguments = args
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
 
         do {
             try process.run()
-            let deadline = Date().addingTimeInterval(2.0)
-            while process.isRunning && Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.05)
-            }
-            if process.isRunning { process.terminate(); return nil }
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)
         } catch {
+            logger.debug("Failed to run \(cmd): \(error.localizedDescription, privacy: .public)")
             return nil
         }
+
+        // Wait with timeout
+        let deadline = Date().addingTimeInterval(2.0)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        if process.isRunning {
+            process.terminate()
+            logger.warning("Timeout: \(cmd) \(args.joined(separator: " "), privacy: .public)")
+            return nil
+        }
+
+        guard process.terminationStatus == 0 else { return nil }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)
     }
 
-    /// Execute a cmux command with timeout. Returns true on success.
-    private nonisolated static func runCmuxCommand(_ cmux: String, args: [String]) -> Bool {
+    /// Activate Ghostty via NSRunningApplication + osascript fallback
+    private nonisolated static func activateGhostty() {
+        // Try NSRunningApplication first
+        let bundleIds = ["com.mitchellh.ghostty", "com.cmuxterm.app", "com.googlecode.iterm2", "com.apple.Terminal"]
+        for bundleId in bundleIds {
+            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
+                if app.activate() {
+                    logger.info("Activated \(bundleId, privacy: .public)")
+                    return
+                }
+            }
+        }
+
+        // Fallback: osascript
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: cmux)
-        process.arguments = args
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", "tell application \"Ghostty\" to activate"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            let deadline = Date().addingTimeInterval(2.0)
-            while process.isRunning && Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.05)
-            }
-            if process.isRunning { process.terminate(); return false }
-            return process.terminationStatus == 0
-        } catch {
-            return nil != nil // always false
-        }
+        try? process.run()
+        process.waitUntilExit()
+        logger.info("Activated Ghostty via osascript")
     }
 
     // MARK: - cmux Notification Suppression
 
     func suppressCmuxNotifications() {
         guard let cmux = cmuxPath else { return }
-        Task.detached {
-            Self.runCmuxCommand(cmux, args: ["set-app-focus", "active"])
+        DispatchQueue.global().async {
+            _ = Self.shell(cmux, ["set-app-focus", "active"])
         }
     }
 
     func restoreCmuxNotifications() {
         guard let cmux = cmuxPath else { return }
-        Task.detached {
-            Self.runCmuxCommand(cmux, args: ["set-app-focus", "clear"])
+        DispatchQueue.global().async {
+            _ = Self.shell(cmux, ["set-app-focus", "clear"])
         }
-    }
-
-    // MARK: - Generic App Activation
-
-    private nonisolated static func activateTerminalApp() -> Bool {
-        let bundleIds = [
-            "com.mitchellh.ghostty",
-            "com.cmuxterm.app",
-            "com.googlecode.iterm2",
-            "com.apple.Terminal"
-        ]
-        for bundleId in bundleIds {
-            let apps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
-            if let app = apps.first, app.activate() {
-                logger.info("Activated: \(bundleId, privacy: .public)")
-                return true
-            }
-        }
-        return false
     }
 }
