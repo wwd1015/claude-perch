@@ -2,20 +2,20 @@
 //  PermissionDetailView.swift
 //  ClaudeIsland
 //
-//  Rich permission approval UI: inline diff preview for Edit,
-//  clickable option buttons for AskUserQuestion, command preview for Bash.
+//  Rich permission approval UI matching Vibe Island's design:
+//  - Amber dot + "Permission Request" header
+//  - Inline diff with line numbers for Edit
+//  - Command preview for Bash
+//  - Clickable option buttons for AskUserQuestion
+//  - Full-width Deny/Allow buttons with keyboard shortcuts
 //
 
 import SwiftUI
 
-// MARK: - Permission Detail View
-
-/// Shows rich context for a permission request based on tool type
 struct PermissionDetailView: View {
     let context: PermissionContext
     let onApprove: () -> Void
     let onDeny: () -> Void
-    /// For AskUserQuestion: sends the selected option text back
     let onAnswer: ((String) -> Void)?
 
     init(context: PermissionContext, onApprove: @escaping () -> Void, onDeny: @escaping () -> Void, onAnswer: ((String) -> Void)? = nil) {
@@ -26,22 +26,31 @@ struct PermissionDetailView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Tool header
+        VStack(alignment: .leading, spacing: 10) {
+            // Header: amber dot + "Permission Request"
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(TerminalColors.amber)
+                    .frame(width: 8, height: 8)
+                Text("Permission Request")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+
+            // Tool line: ⚠ Edit src/auth/middleware.ts
             HStack(spacing: 6) {
-                Image(systemName: toolIcon)
-                    .font(.system(size: 11, weight: .bold))
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12))
                     .foregroundColor(TerminalColors.amber)
                 Text(MCPToolFormatter.formatToolName(context.toolName))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(TerminalColors.amber)
                 if let filePath = extractString("file_path") {
-                    Text(shortenPath(filePath))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5))
+                    Text(filePath)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.9))
                         .lineLimit(1)
                 }
-                Spacer()
             }
 
             // Tool-specific content
@@ -58,66 +67,76 @@ struct PermissionDetailView: View {
                 genericPreview
             }
 
-            // Action buttons (skip for AskUserQuestion which has its own buttons)
+            // Deny / Allow buttons (skip for AskUserQuestion)
             if context.toolName != "AskUserQuestion" {
                 approvalButtons
             }
         }
-        .padding(10)
+        .padding(12)
         .background(Color.white.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Edit Diff View
+    // MARK: - Edit Diff (matches Vibe Island: line numbers + red/green)
 
     private var editDiffView: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             if let oldString = extractString("old_string"),
                let newString = extractString("new_string") {
-                // Show inline diff
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        // Removed lines
-                        ForEach(oldString.components(separatedBy: "\n"), id: \.self) { line in
-                            HStack(spacing: 4) {
-                                Text("-")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .foregroundColor(Color(red: 0.9, green: 0.3, blue: 0.3))
-                                Text(line)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(Color(red: 0.9, green: 0.3, blue: 0.3).opacity(0.8))
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(Color.red.opacity(0.08))
+
+                let oldLines = oldString.components(separatedBy: "\n")
+                let newLines = newString.components(separatedBy: "\n")
+
+                // Diff code block with dark background
+                VStack(alignment: .leading, spacing: 0) {
+                    // Removed lines (red)
+                    ForEach(Array(oldLines.enumerated()), id: \.offset) { index, line in
+                        HStack(spacing: 0) {
+                            // Line number
+                            Text("\(index + 1)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.25))
+                                .frame(width: 24, alignment: .trailing)
+                            Text(" - ")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(Color(red: 1.0, green: 0.4, blue: 0.4))
+                            Text(line)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(Color(red: 1.0, green: 0.4, blue: 0.4))
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
                         }
-                        // Added lines
-                        ForEach(newString.components(separatedBy: "\n"), id: \.self) { line in
-                            HStack(spacing: 4) {
-                                Text("+")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .foregroundColor(Color(red: 0.3, green: 0.85, blue: 0.4))
-                                Text(line)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(Color(red: 0.3, green: 0.85, blue: 0.4).opacity(0.8))
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(Color.green.opacity(0.08))
+                        .padding(.vertical, 1)
+                        .background(Color.red.opacity(0.1))
+                    }
+
+                    // Added lines (green)
+                    ForEach(Array(newLines.enumerated()), id: \.offset) { index, line in
+                        HStack(spacing: 0) {
+                            Text("\(oldLines.count + index + 1)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.25))
+                                .frame(width: 24, alignment: .trailing)
+                            Text(" + ")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(Color(red: 0.4, green: 0.9, blue: 0.4))
+                            Text(line)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(Color(red: 0.4, green: 0.9, blue: 0.4))
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
                         }
+                        .padding(.vertical, 1)
+                        .background(Color.green.opacity(0.08))
                     }
                 }
-                .frame(maxHeight: 120)
+                .padding(8)
+                .background(Color.black.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 // Change summary
-                let removedCount = oldString.components(separatedBy: "\n").count
-                let addedCount = newString.components(separatedBy: "\n").count
-                Text("+\(addedCount) -\(removedCount)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                Text("+\(newLines.count) -\(oldLines.count)")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.4))
             } else {
                 genericPreview
@@ -130,32 +149,36 @@ struct PermissionDetailView: View {
     private var writePreview: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let content = extractString("content") {
-                let lineCount = content.components(separatedBy: "\n").count
-                Text("New file (\(lineCount) lines)")
-                    .font(.system(size: 10, weight: .medium))
+                let lines = content.components(separatedBy: "\n")
+                Text("New file (\(lines.count) lines)")
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white.opacity(0.5))
 
-                // Show first few lines
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        ForEach(Array(content.components(separatedBy: "\n").prefix(8).enumerated()), id: \.offset) { _, line in
-                            Text(line)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.prefix(8).enumerated()), id: \.offset) { index, line in
+                        HStack(spacing: 0) {
+                            Text("\(index + 1)")
                                 .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.25))
+                                .frame(width: 24, alignment: .trailing)
+                            Text("   ")
+                            Text(line)
+                                .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(.white.opacity(0.6))
                                 .lineLimit(1)
+                            Spacer(minLength: 0)
                         }
-                        if content.components(separatedBy: "\n").count > 8 {
-                            Text("...")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.3))
-                        }
+                        .padding(.vertical, 1)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(6)
-                    .background(Color.white.opacity(0.03))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    if lines.count > 8 {
+                        Text("       ...")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.3))
+                    }
                 }
-                .frame(maxHeight: 100)
+                .padding(8)
+                .background(Color.black.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 genericPreview
             }
@@ -167,60 +190,65 @@ struct PermissionDetailView: View {
     private var bashPreview: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let command = extractString("command") {
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     Text("$")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
                         .foregroundColor(TerminalColors.green)
                     Text(command)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.8))
-                        .lineLimit(3)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.85))
+                        .lineLimit(4)
                 }
-                .padding(6)
+                .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.white.opacity(0.03))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .background(Color.black.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 genericPreview
             }
         }
     }
 
-    // MARK: - AskUserQuestion View
+    // MARK: - AskUserQuestion (matches Vibe Island: teal option buttons)
 
     private var askUserQuestionView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Show the question
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
+            HStack(spacing: 6) {
+                Text("Claude asks")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+
+            // Question text
             if let question = extractQuestionText() {
                 Text(question)
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.8))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.9))
                     .lineLimit(3)
             }
 
-            // Show clickable option buttons
+            // Option buttons (teal-tinted like Vibe Island)
             let options = extractQuestionOptions()
             if !options.isEmpty {
-                VStack(spacing: 4) {
+                VStack(spacing: 5) {
                     ForEach(Array(options.enumerated()), id: \.offset) { index, option in
                         Button {
                             onAnswer?(option)
                         } label: {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 8) {
                                 Text("\u{2318}\(index + 1)")
-                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                    .foregroundColor(.white.opacity(0.4))
-                                    .frame(width: 28)
+                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.5))
                                 Text(option)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.9))
-                                    .lineLimit(1)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.white)
                                 Spacer()
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                            .background(Color.white.opacity(0.06))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(red: 0.15, green: 0.35, blue: 0.35)) // Teal tint
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
                     }
@@ -235,34 +263,36 @@ struct PermissionDetailView: View {
         Group {
             if let formatted = context.formattedInput {
                 Text(formatted)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.white.opacity(0.5))
                     .lineLimit(4)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.black.opacity(0.3))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
     }
 
-    // MARK: - Approval Buttons
+    // MARK: - Approval Buttons (full-width, side by side like Vibe Island)
 
     private var approvalButtons: some View {
         HStack(spacing: 8) {
-            Spacer()
-
             Button {
                 onDeny()
             } label: {
                 HStack(spacing: 4) {
                     Text("Deny")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                     Text("\u{2318}N")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.3))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.4))
                 }
-                .foregroundColor(.white.opacity(0.6))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.1))
-                .clipShape(Capsule())
+                .foregroundColor(.white.opacity(0.7))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
 
@@ -271,34 +301,22 @@ struct PermissionDetailView: View {
             } label: {
                 HStack(spacing: 4) {
                     Text("Allow")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .semibold))
                     Text("\u{2318}Y")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundColor(.black.opacity(0.4))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.black.opacity(0.5))
                 }
                 .foregroundColor(.black)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
                 .background(Color.white.opacity(0.9))
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
         }
     }
 
     // MARK: - Helpers
-
-    private var toolIcon: String {
-        switch context.toolName {
-        case "Edit": return "pencil"
-        case "Write": return "doc.badge.plus"
-        case "Bash": return "terminal"
-        case "Read": return "doc.text"
-        case "Glob", "Grep": return "magnifyingglass"
-        case "AskUserQuestion": return "questionmark.bubble"
-        default: return "wrench"
-        }
-    }
 
     private func extractString(_ key: String) -> String? {
         guard let input = context.toolInput,
@@ -307,21 +325,13 @@ struct PermissionDetailView: View {
         return str
     }
 
-    private func shortenPath(_ path: String) -> String {
-        let components = path.components(separatedBy: "/")
-        if components.count <= 3 { return path }
-        return ".../" + components.suffix(2).joined(separator: "/")
-    }
-
     private func extractQuestionText() -> String? {
         guard let input = context.toolInput else { return nil }
-        // AskUserQuestion has a "questions" array with "question" field
         if let questions = input["questions"]?.value as? [[String: Any]],
            let first = questions.first,
            let question = first["question"] as? String {
             return question
         }
-        // Fallback: check for "question" directly
         if let question = input["question"]?.value as? String {
             return question
         }
@@ -330,7 +340,6 @@ struct PermissionDetailView: View {
 
     private func extractQuestionOptions() -> [String] {
         guard let input = context.toolInput else { return [] }
-        // AskUserQuestion has questions[0].options[].label
         if let questions = input["questions"]?.value as? [[String: Any]],
            let first = questions.first,
            let options = first["options"] as? [[String: Any]] {
