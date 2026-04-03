@@ -214,6 +214,12 @@ struct InstanceRow: View {
 
                     subtitleView
                 }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        showDetail.toggle()
+                    }
+                }
 
                 Spacer(minLength: 0)
 
