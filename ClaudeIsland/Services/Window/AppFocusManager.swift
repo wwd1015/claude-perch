@@ -45,6 +45,7 @@ actor AppFocusManager {
 
                     // Get full tree and parse pane->title mapping
                     if let tree = Self.shell(cmux, ["tree", "--all"]) {
+                        Self.logger.error("FOCUS: tree output length=\(tree.count) first200=\(String(tree.prefix(200)), privacy: .public)")
                         // Parse: find lines with "pane pane:N" and their surface title in quotes
                         var currentPane: String? = nil
                         for line in tree.components(separatedBy: "\n") {
