@@ -451,7 +451,8 @@ struct ChatView: View {
                 cwd: session.cwd,
                 isInTmux: session.isInTmux,
                 sessionTitle: session.displayTitle,
-                sessionId: session.sessionId
+                sessionId: session.sessionId,
+                sessionSummary: session.summary
             )
         }
     }

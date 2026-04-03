@@ -34,15 +34,16 @@ actor AppFocusManager {
     }
 
     /// Focus the terminal for a Claude session.
-    func focusSession(pid: Int?, cwd: String, isInTmux: Bool, sessionTitle: String? = nil, sessionId: String? = nil) async -> Bool {
+    func focusSession(pid: Int?, cwd: String, isInTmux: Bool, sessionTitle: String? = nil, sessionId: String? = nil, sessionSummary: String? = nil) async -> Bool {
         if let cmux = cmuxPath {
             let cmuxPath = cmux
             let title = sessionTitle
             let project = URL(fileURLWithPath: cwd).lastPathComponent
             let sid = sessionId
+            let summary = sessionSummary
 
             let _ = await Task.detached(priority: .userInitiated) {
-                Self.focusViaCmux(cmux: cmuxPath, project: project, title: title, sessionId: sid)
+                Self.focusViaCmux(cmux: cmuxPath, project: project, title: title, sessionId: sid, summary: summary)
             }.value
         }
 
@@ -54,7 +55,7 @@ actor AppFocusManager {
 
     /// Focus a session by finding its pane via surface title matching.
     /// Tries: session ID prefix > project name > session title > workspace title
-    private nonisolated static func focusViaCmux(cmux: String, project: String, title: String?, sessionId: String?) -> Bool {
+    private nonisolated static func focusViaCmux(cmux: String, project: String, title: String?, sessionId: String?, summary: String? = nil) -> Bool {
         // Get all panes
         let panesOutput = runCmuxOutput(cmux, args: ["list-panes"])
         guard let panesOutput = panesOutput else { return false }
@@ -92,7 +93,20 @@ actor AppFocusManager {
             }
         }
 
-        // Strategy 2: Match by project name
+        // Strategy 2: Match by session summary (e.g., "mission-control-dashboard-review")
+        if let summary = summary, !summary.isEmpty {
+            let summaryLower = summary.lowercased()
+            for ps in paneSurfaces {
+                if ps.title.contains(summaryLower) {
+                    if runCmuxCommand(cmux, args: ["focus-pane", "--pane", ps.pane]) {
+                        logger.info("Focused pane \(ps.pane) by summary: \(summary, privacy: .public)")
+                        return true
+                    }
+                }
+            }
+        }
+
+        // Strategy 3: Match by project name
         let projectLower = project.lowercased()
         for ps in paneSurfaces {
             if ps.title.contains(projectLower) {
