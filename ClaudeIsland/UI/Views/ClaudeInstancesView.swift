@@ -285,20 +285,6 @@ struct InstanceRow: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            onChat()
-        }
-        .onTapGesture(count: 1) {
-            if session.phase == .waitingForInput {
-                // "Done" state: tap anywhere to jump to terminal
-                onFocus()
-            } else {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    showDetail.toggle()
-                }
-            }
-        }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
         .background(
             RoundedRectangle(cornerRadius: 12)

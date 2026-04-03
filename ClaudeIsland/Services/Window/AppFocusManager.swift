@@ -31,6 +31,8 @@ actor AppFocusManager {
         let summary = sessionSummary
         let sid = sessionId
 
+        Self.logger.error("FOCUS DEBUG: focusSession called! project=\(project, privacy: .public) summary=\(summary ?? "nil", privacy: .public) sid=\(sid ?? "nil", privacy: .public) cmux=\(cmux != nil ? "YES" : "NO", privacy: .public)")
+
         // Run focus logic on a background thread to never block UI
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -58,11 +60,14 @@ actor AppFocusManager {
 
     /// Find and focus the right cmux pane by matching search terms against surface titles
     private nonisolated static func focusCmuxPane(cmux: String, searchTerms: [String]) -> Bool {
+        logger.error("FOCUS DEBUG: starting with terms: \(searchTerms.joined(separator: ", "), privacy: .public)")
+
         // Get pane list
         guard let panesRaw = shell(cmux, ["list-panes"]) else {
-            logger.warning("cmux list-panes failed")
+            logger.error("FOCUS DEBUG: cmux list-panes FAILED")
             return false
         }
+        logger.error("FOCUS DEBUG: panes raw: \(panesRaw, privacy: .public)")
 
         let paneIds = panesRaw.components(separatedBy: "\n")
             .compactMap { line -> String? in
@@ -70,23 +75,32 @@ actor AppFocusManager {
                 return String(line[match])
             }
 
+        logger.error("FOCUS DEBUG: found \(paneIds.count) panes: \(paneIds.joined(separator: ", "), privacy: .public)")
+
         // Get surface titles for each pane
         for paneId in paneIds {
-            guard let surfaceRaw = shell(cmux, ["list-pane-surfaces", "--pane", paneId]) else { continue }
+            guard let surfaceRaw = shell(cmux, ["list-pane-surfaces", "--pane", paneId]) else {
+                logger.error("FOCUS DEBUG: list-pane-surfaces FAILED for \(paneId, privacy: .public)")
+                continue
+            }
             let titleLower = surfaceRaw.lowercased()
+            logger.error("FOCUS DEBUG: \(paneId, privacy: .public) surface: \(titleLower, privacy: .public)")
 
             // Try each search term
             for term in searchTerms {
                 if titleLower.contains(term.lowercased()) {
-                    if let _ = shell(cmux, ["focus-pane", "--pane", paneId]) {
-                        logger.info("Focused \(paneId) via '\(term, privacy: .public)'")
+                    logger.error("FOCUS DEBUG: MATCHED '\(term, privacy: .public)' in \(paneId, privacy: .public), calling focus-pane")
+                    if let result = shell(cmux, ["focus-pane", "--pane", paneId]) {
+                        logger.error("FOCUS DEBUG: focus-pane SUCCESS: \(result, privacy: .public)")
                         return true
+                    } else {
+                        logger.error("FOCUS DEBUG: focus-pane FAILED for \(paneId, privacy: .public)")
                     }
                 }
             }
         }
 
-        logger.info("No cmux pane matched for terms: \(searchTerms, privacy: .public)")
+        logger.error("FOCUS DEBUG: NO MATCH for terms: \(searchTerms.joined(separator: ", "), privacy: .public)")
         return false
     }
 
