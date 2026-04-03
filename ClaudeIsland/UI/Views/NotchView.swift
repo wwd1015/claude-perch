@@ -248,40 +248,48 @@ struct NotchView: View {
         }
     }
 
-    // MARK: - Status Strip (colored dots for closed notch)
+    // MARK: - Status Strip (Vibe Island style: icon + activity + count)
 
     @ViewBuilder
     private var statusStrip: some View {
         let sessions = sessionMonitor.instances
-        let maxDots = 8
+        // Find the most active session to show in the strip
+        let activeSession = sessions.first(where: { $0.phase == .processing || $0.phase == .compacting })
+            ?? sessions.first(where: { $0.phase.isWaitingForApproval })
+            ?? sessions.first(where: { $0.phase == .waitingForInput })
+            ?? sessions.first
 
-        HStack(spacing: 3) {
-            Spacer(minLength: 0)
-            ForEach(Array(sessions.prefix(maxDots).enumerated()), id: \.element.id) { _, session in
-                Circle()
-                    .fill(dotColor(for: session.phase))
-                    .frame(width: 6, height: 6)
-            }
-            if sessions.count > maxDots {
-                Text("+\(sessions.count - maxDots)")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundColor(.white.opacity(0.4))
-            }
-            Spacer(minLength: 0)
-        }
-        .fixedSize() // Don't expand beyond natural content size
-    }
+        if let session = activeSession {
+            HStack(spacing: 6) {
+                // Mini pixel icon
+                SessionPixelIcon(sessionId: session.sessionId, phase: session.phase)
+                    .frame(width: 16, height: 16)
+                    .scaleEffect(0.7)
 
-    private func dotColor(for phase: SessionPhase) -> Color {
-        switch phase {
-        case .processing, .compacting:
-            return TerminalColors.green
-        case .waitingForApproval:
-            return TerminalColors.amber
-        case .waitingForInput:
-            return TerminalColors.green.opacity(0.8)
-        case .idle, .ended:
-            return Color.white.opacity(0.2)
+                // Current activity text
+                if let toolName = session.lastToolName, let input = session.lastMessage {
+                    Text("\(MCPToolFormatter.formatToolName(toolName)): \(input)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                        .lineLimit(1)
+                } else if session.phase == .waitingForInput {
+                    Text("Ready")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(TerminalColors.green)
+                } else if session.phase.isWaitingForApproval {
+                    Text("Approval needed")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(TerminalColors.amber)
+                }
+
+                // Session count
+                if sessions.count > 0 {
+                    Text("\(sessions.count) session\(sessions.count == 1 ? "" : "s")")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.35))
+                }
+            }
+            .padding(.horizontal, 4)
         }
     }
 
