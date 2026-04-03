@@ -243,6 +243,13 @@ struct NotchView: View {
                     .frame(height: max(24, closedNotchSize.height))
             }
 
+            // Usage stats bar (like Vibe Island: "5h 35% 3h49m | 7d 7% 6d")
+            if viewModel.status == .opened && !sessionMonitor.instances.isEmpty {
+                usageStatsBar
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 4)
+            }
+
             // Main content only when opened
             if viewModel.status == .opened {
                 contentView
@@ -584,6 +591,53 @@ struct NotchView: View {
         }
 
         previousWaitingForInputIds = currentIds
+    }
+
+    // MARK: - Usage Stats Bar (like Vibe Island top bar)
+
+    @ViewBuilder
+    private var usageStatsBar: some View {
+        let totalSessions = sessionMonitor.instances.count
+        let activeSessions = sessionMonitor.instances.filter { $0.phase == .processing || $0.phase == .compacting }.count
+
+        HStack(spacing: 4) {
+            // Status indicator
+            Circle()
+                .fill(activeSessions > 0 ? Color.orange : TerminalColors.green)
+                .frame(width: 8, height: 8)
+
+            // Session time (from oldest session)
+            if let oldest = sessionMonitor.instances.min(by: { $0.createdAt < $1.createdAt }) {
+                let elapsed = Date().timeIntervalSince(oldest.createdAt)
+                let hours = Int(elapsed / 3600)
+                let minutes = Int(elapsed.truncatingRemainder(dividingBy: 3600) / 60)
+                if hours > 0 {
+                    Text("\(hours)h")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.7))
+                    Text("\(minutes)m")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.4))
+                } else {
+                    Text("\(minutes)m")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+            }
+
+            Text("|")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.2))
+
+            // Active/total sessions
+            Text("\(activeSessions)/\(totalSessions) active")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.4))
+
+            Spacer()
+
+            // Sound + gear are already in the header row
+        }
     }
 
     /// Check if a fullscreen app is active on the current screen
