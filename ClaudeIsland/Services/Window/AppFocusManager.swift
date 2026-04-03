@@ -41,11 +41,11 @@ actor AppFocusManager {
                     terms.append(project)
                     terms.append(cwdPath)
 
-                    Self.logger.error("FOCUS: terms=\(terms.joined(separator: " | "), privacy: .public)")
+                    Self.logger.debug("FOCUS: terms=\(terms.joined(separator: " | "), privacy: .public)")
 
                     // Get full tree and parse pane->title mapping
                     if let tree = Self.shell(cmux, ["tree", "--all"]) {
-                        Self.logger.error("FOCUS: tree output length=\(tree.count) first200=\(String(tree.prefix(200)), privacy: .public)")
+                        Self.logger.debug("FOCUS: tree output length=\(tree.count) first200=\(String(tree.prefix(200)), privacy: .public)")
                         // Parse: find lines with "pane pane:N" and their surface title in quotes
                         var currentPane: String? = nil
                         for line in tree.components(separatedBy: "\n") {
@@ -61,7 +61,7 @@ actor AppFocusManager {
 
                                     for term in terms {
                                         if surfaceTitle.contains(term.lowercased()) {
-                                            Self.logger.error("FOCUS: matched '\(term, privacy: .public)' in \(pane, privacy: .public)")
+                                            Self.logger.debug("FOCUS: matched '\(term, privacy: .public)' in \(pane, privacy: .public)")
                                             let _ = Self.shell(cmux, ["focus-pane", "--pane", pane])
                                             Self.activateGhostty()
                                             continuation.resume(returning: true)
@@ -74,7 +74,7 @@ actor AppFocusManager {
                         }
                     }
 
-                    Self.logger.error("FOCUS: no tree match, trying first unmatched pane")
+                    Self.logger.debug("FOCUS: no tree match, trying first unmatched pane")
 
                     // Fallback: focus the first pane that has a Claude session
                     // (any pane with a surface that's a terminal, not a shell prompt)
@@ -87,7 +87,7 @@ actor AppFocusManager {
                         }
                         // Try pane:1 first (most likely the unmatched session)
                         for pane in panes {
-                            Self.logger.error("FOCUS: fallback trying \(pane, privacy: .public)")
+                            Self.logger.debug("FOCUS: fallback trying \(pane, privacy: .public)")
                             let _ = Self.shell(cmux, ["focus-pane", "--pane", pane])
                             Self.activateGhostty()
                             continuation.resume(returning: true)
