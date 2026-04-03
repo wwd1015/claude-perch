@@ -116,7 +116,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        Mixpanel.mainInstance().flush()
+        // Note: Mixpanel.mainInstance().flush() removed to prevent crash
+        // when app terminates before Mixpanel is initialized
         updateCheckTimer?.invalidate()
         screenObserver = nil
     }
