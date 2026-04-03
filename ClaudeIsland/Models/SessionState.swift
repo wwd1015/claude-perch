@@ -124,14 +124,50 @@ struct SessionState: Equatable, Identifiable, Sendable {
         return sessionId
     }
 
-    /// Display title: summary > first user message > project name
+    /// Display title: summary > command args > last message > project name
     var displayTitle: String {
-        conversationInfo.summary ?? conversationInfo.firstUserMessage ?? projectName
+        if let summary = conversationInfo.summary {
+            return Self.cleanText(summary)
+        }
+        if let firstMsg = conversationInfo.firstUserMessage {
+            // Extract <command-args> content if present (gstack skill invocations)
+            if let args = Self.extractCommandArgs(firstMsg), !args.isEmpty {
+                return Self.cleanText(args)
+            }
+            // Skip if it's just a command name with no useful content
+            let cleaned = Self.cleanText(firstMsg)
+            if !cleaned.isEmpty && cleaned != "office-hours" && cleaned != "resume" && !cleaned.hasPrefix("Base directory") {
+                return cleaned
+            }
+        }
+        return projectName
+    }
+
+    /// Extract content from <command-args> tags
+    private static func extractCommandArgs(_ text: String) -> String? {
+        guard let range = text.range(of: "<command-args>"),
+              let endRange = text.range(of: "</command-args>") else { return nil }
+        let content = String(text[range.upperBound..<endRange.lowerBound])
+        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Clean text: strip XML/HTML tags, collapse whitespace, truncate
+    private static func cleanText(_ text: String) -> String {
+        let cleaned = text.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "",
+            options: .regularExpression
+        )
+        let trimmed = cleaned
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return String(trimmed.prefix(80))
     }
 
     /// Best hint for matching window title
     var windowHint: String {
-        conversationInfo.summary ?? projectName
+        conversationInfo.summary.map { Self.cleanText($0) } ?? projectName
     }
 
     /// Pending tool name if waiting for approval

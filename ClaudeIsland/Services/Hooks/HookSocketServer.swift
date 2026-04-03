@@ -125,12 +125,22 @@ class HookSocketServer {
     private var toolUseIdCache: [String: [String]] = [:]
     private let cacheLock = NSLock()
 
+    /// Timer for cleaning up stale permissions (Python hook times out after 300s)
+    private var stalePermissionTimer: DispatchSourceTimer?
+    private static let permissionTimeoutSeconds: TimeInterval = 300
+
+    /// Callback when a permission expires due to timeout
+    typealias PermissionExpiredHandler = @Sendable (_ sessionId: String, _ toolUseId: String) -> Void
+    private var permissionExpiredHandler: PermissionExpiredHandler?
+
     private init() {}
 
     /// Start the socket server
-    func start(onEvent: @escaping HookEventHandler, onPermissionFailure: PermissionFailureHandler? = nil) {
+    func start(onEvent: @escaping HookEventHandler, onPermissionFailure: PermissionFailureHandler? = nil, onPermissionExpired: PermissionExpiredHandler? = nil) {
+        permissionExpiredHandler = onPermissionExpired
         queue.async { [weak self] in
             self?.startServer(onEvent: onEvent, onPermissionFailure: onPermissionFailure)
+            self?.startStalePermissionTimer()
         }
     }
 
@@ -198,8 +208,40 @@ class HookSocketServer {
         acceptSource?.resume()
     }
 
+    /// Start periodic timer to clean up stale permissions
+    private func startStalePermissionTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 30, repeating: 30)
+        timer.setEventHandler { [weak self] in
+            self?.cleanupStalePermissions()
+        }
+        timer.resume()
+        stalePermissionTimer = timer
+    }
+
+    /// Remove permissions whose sockets have timed out (Python hook timeout: 300s)
+    private func cleanupStalePermissions() {
+        let now = Date()
+        permissionsLock.lock()
+        let stale = pendingPermissions.filter {
+            now.timeIntervalSince($0.value.receivedAt) > Self.permissionTimeoutSeconds
+        }
+        for (toolUseId, pending) in stale {
+            logger.info("Permission expired for \(pending.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public) (age: \(String(format: "%.0f", now.timeIntervalSince(pending.receivedAt)), privacy: .public)s)")
+            close(pending.clientSocket)
+            pendingPermissions.removeValue(forKey: toolUseId)
+        }
+        permissionsLock.unlock()
+
+        for (_, pending) in stale {
+            permissionExpiredHandler?(pending.sessionId, pending.toolUseId)
+        }
+    }
+
     /// Stop the socket server
     func stop() {
+        stalePermissionTimer?.cancel()
+        stalePermissionTimer = nil
         acceptSource?.cancel()
         acceptSource = nil
         unlink(Self.socketPath)
@@ -259,11 +301,10 @@ class HookSocketServer {
 
     private func cleanupSpecificPermission(toolUseId: String) {
         permissionsLock.lock()
+        defer { permissionsLock.unlock() }
         guard let pending = pendingPermissions.removeValue(forKey: toolUseId) else {
-            permissionsLock.unlock()
             return
         }
-        permissionsLock.unlock()
 
         logger.debug("Tool completed externally, closing socket for \(pending.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public)")
         close(pending.clientSocket)
@@ -458,8 +499,8 @@ class HookSocketServer {
                 receivedAt: Date()
             )
             permissionsLock.lock()
+            defer { permissionsLock.unlock() }
             pendingPermissions[toolUseId] = pending
-            permissionsLock.unlock()
 
             eventHandler?(updatedEvent)
             return
@@ -471,13 +512,15 @@ class HookSocketServer {
     }
 
     private func sendPermissionResponse(toolUseId: String, decision: String, reason: String?) {
+        let pending: PendingPermission
         permissionsLock.lock()
-        guard let pending = pendingPermissions.removeValue(forKey: toolUseId) else {
+        guard let found = pendingPermissions.removeValue(forKey: toolUseId) else {
             permissionsLock.unlock()
             logger.debug("No pending permission for toolUseId: \(toolUseId.prefix(12), privacy: .public)")
             return
         }
         permissionsLock.unlock()
+        pending = found
 
         let response = HookResponse(decision: decision, reason: reason)
         guard let data = try? JSONEncoder().encode(response) else {
@@ -505,20 +548,23 @@ class HookSocketServer {
     }
 
     private func sendPermissionResponseBySession(sessionId: String, decision: String, reason: String?) {
-        permissionsLock.lock()
-        let matchingPending = pendingPermissions.values
-            .filter { $0.sessionId == sessionId }
-            .sorted { $0.receivedAt > $1.receivedAt }
-            .first
+        let pending: PendingPermission
+        do {
+            permissionsLock.lock()
+            defer { permissionsLock.unlock() }
+            let matchingPending = pendingPermissions.values
+                .filter { $0.sessionId == sessionId }
+                .sorted { $0.receivedAt > $1.receivedAt }
+                .first
 
-        guard let pending = matchingPending else {
-            permissionsLock.unlock()
-            logger.debug("No pending permission for session: \(sessionId.prefix(8), privacy: .public)")
-            return
+            guard let found = matchingPending else {
+                logger.debug("No pending permission for session: \(sessionId.prefix(8), privacy: .public)")
+                return
+            }
+
+            pendingPermissions.removeValue(forKey: found.toolUseId)
+            pending = found
         }
-
-        pendingPermissions.removeValue(forKey: pending.toolUseId)
-        permissionsLock.unlock()
 
         let response = HookResponse(decision: decision, reason: reason)
         guard let data = try? JSONEncoder().encode(response) else {

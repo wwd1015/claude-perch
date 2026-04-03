@@ -66,6 +66,13 @@ class ClaudeSessionMonitor: ObservableObject {
                         .permissionSocketFailed(sessionId: sessionId, toolUseId: toolUseId)
                     )
                 }
+            },
+            onPermissionExpired: { sessionId, toolUseId in
+                Task {
+                    await SessionStore.shared.process(
+                        .permissionSocketFailed(sessionId: sessionId, toolUseId: toolUseId)
+                    )
+                }
             }
         )
     }

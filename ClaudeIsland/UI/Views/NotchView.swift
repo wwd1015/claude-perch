@@ -190,6 +190,7 @@ struct NotchView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             sessionMonitor.startMonitoring()
+            startGlobalHotkeys()
             // On non-notched devices, keep visible so users have a target to interact with
             if !viewModel.hasPhysicalNotch {
                 isVisible = true
@@ -225,6 +226,12 @@ struct NotchView: View {
             headerRow
                 .frame(height: max(24, closedNotchSize.height))
 
+            // Status strip - colored dots showing session status when closed
+            if viewModel.status != .opened && !sessionMonitor.instances.isEmpty {
+                statusStrip
+                    .padding(.bottom, 4)
+            }
+
             // Main content only when opened
             if viewModel.status == .opened {
                 contentView
@@ -238,6 +245,43 @@ struct NotchView: View {
                         )
                     )
             }
+        }
+    }
+
+    // MARK: - Status Strip (colored dots for closed notch)
+
+    @ViewBuilder
+    private var statusStrip: some View {
+        let sessions = sessionMonitor.instances
+        let maxDots = 8
+
+        HStack(spacing: 3) {
+            Spacer(minLength: 0)
+            ForEach(Array(sessions.prefix(maxDots).enumerated()), id: \.element.id) { _, session in
+                Circle()
+                    .fill(dotColor(for: session.phase))
+                    .frame(width: 6, height: 6)
+            }
+            if sessions.count > maxDots {
+                Text("+\(sessions.count - maxDots)")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+            Spacer(minLength: 0)
+        }
+        .fixedSize() // Don't expand beyond natural content size
+    }
+
+    private func dotColor(for phase: SessionPhase) -> Color {
+        switch phase {
+        case .processing, .compacting:
+            return TerminalColors.green
+        case .waitingForApproval:
+            return TerminalColors.amber
+        case .waitingForInput:
+            return TerminalColors.green.opacity(0.8)
+        case .idle, .ended:
+            return Color.white.opacity(0.2)
         }
     }
 
@@ -419,10 +463,24 @@ struct NotchView: View {
         let currentIds = Set(sessions.map { $0.stableId })
         let newPendingIds = currentIds.subtracting(previousPendingIds)
 
-        if !newPendingIds.isEmpty &&
-           viewModel.status == .closed &&
-           !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
-            viewModel.notchOpen(reason: .notification)
+        if !newPendingIds.isEmpty {
+            // Play urgent notification sound for new permission requests
+            if let soundName = AppSettings.urgentNotificationSound.soundName {
+                let newSessions = sessions.filter { newPendingIds.contains($0.stableId) }
+                Task {
+                    let shouldPlay = await shouldPlayNotificationSound(for: newSessions)
+                    if shouldPlay {
+                        await MainActor.run {
+                            NSSound(named: soundName)?.play()
+                        }
+                    }
+                }
+            }
+
+            if viewModel.status == .closed &&
+               !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
+                viewModel.notchOpen(reason: .notification)
+            }
         }
 
         previousPendingIds = currentIds
@@ -499,5 +557,39 @@ struct NotchView: View {
         }
 
         return false
+    }
+
+    // MARK: - Global Hotkeys
+
+    private func startGlobalHotkeys() {
+        GlobalHotkeyManager.shared.start(
+            onApprove: { [weak sessionMonitor] in
+                guard let monitor = sessionMonitor else { return }
+                let pending = monitor.instances.filter { $0.phase.isWaitingForApproval }
+                    .sorted { ($0.lastActivity) > ($1.lastActivity) }
+                if let session = pending.first {
+                    monitor.approvePermission(sessionId: session.sessionId)
+                }
+            },
+            onDeny: { [weak sessionMonitor] in
+                guard let monitor = sessionMonitor else { return }
+                let pending = monitor.instances.filter { $0.phase.isWaitingForApproval }
+                    .sorted { ($0.lastActivity) > ($1.lastActivity) }
+                if let session = pending.first {
+                    monitor.denyPermission(sessionId: session.sessionId, reason: nil)
+                }
+            },
+            onSelectOption: { [weak sessionMonitor] index in
+                // For AskUserQuestion: select option by Cmd+1-9
+                guard let monitor = sessionMonitor else { return }
+                let pending = monitor.instances.filter {
+                    $0.phase.isWaitingForApproval && $0.pendingToolName == "AskUserQuestion"
+                }
+                if let session = pending.first {
+                    // Answer with the option label (the chat handler will find it)
+                    monitor.approvePermission(sessionId: session.sessionId)
+                }
+            }
+        )
     }
 }

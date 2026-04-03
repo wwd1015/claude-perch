@@ -2,7 +2,7 @@
 //  ClaudeInstancesView.swift
 //  ClaudeIsland
 //
-//  Minimal instances list matching Dynamic Island aesthetic
+//  Mission Control dashboard with session grouping by project
 //
 
 import Combine
@@ -35,20 +35,27 @@ struct ClaudeInstancesView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Instances List
+    // MARK: - Session Grouping
 
-    /// Priority: active (approval/processing/compacting) > waitingForInput > idle
-    /// Secondary sort: by last user message date (stable - doesn't change when agent responds)
-    /// Note: approval requests stay in their date-based position to avoid layout shift
-    private var sortedInstances: [SessionState] {
-        sessionMonitor.instances.sorted { a, b in
+    /// Groups sessions by project name, sorted by urgency within each group.
+    /// Groups with attention-needing sessions float to the top.
+    private var groupedSessions: [(project: String, sessions: [SessionState])] {
+        let grouped = Dictionary(grouping: sessionMonitor.instances, by: \.projectName)
+        return grouped.map { (project: $0.key, sessions: sortSessions($0.value)) }
+            .sorted { groupA, groupB in
+                // Groups with attention-needing sessions first
+                let urgencyA = groupA.sessions.map { phasePriority($0.phase) }.min() ?? 99
+                let urgencyB = groupB.sessions.map { phasePriority($0.phase) }.min() ?? 99
+                if urgencyA != urgencyB { return urgencyA < urgencyB }
+                return groupA.project < groupB.project
+            }
+    }
+
+    private func sortSessions(_ sessions: [SessionState]) -> [SessionState] {
+        sessions.sorted { a, b in
             let priorityA = phasePriority(a.phase)
             let priorityB = phasePriority(b.phase)
-            if priorityA != priorityB {
-                return priorityA < priorityB
-            }
-            // Sort by last user message date (more recent first)
-            // Fall back to lastActivity if no user messages yet
+            if priorityA != priorityB { return priorityA < priorityB }
             let dateA = a.lastUserMessageDate ?? a.lastActivity
             let dateB = b.lastUserMessageDate ?? b.lastActivity
             return dateA > dateB
@@ -56,7 +63,6 @@ struct ClaudeInstancesView: View {
     }
 
     /// Lower number = higher priority
-    /// Approval requests share priority with processing to maintain stable ordering
     private func phasePriority(_ phase: SessionPhase) -> Int {
         switch phase {
         case .waitingForApproval, .processing, .compacting: return 0
@@ -65,19 +71,34 @@ struct ClaudeInstancesView: View {
         }
     }
 
+    // MARK: - Instances List
+
     private var instancesList: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 2) {
-                ForEach(sortedInstances) { session in
-                    InstanceRow(
-                        session: session,
-                        onFocus: { focusSession(session) },
-                        onChat: { openChat(session) },
-                        onArchive: { archiveSession(session) },
-                        onApprove: { approveSession(session) },
-                        onReject: { rejectSession(session) }
-                    )
-                    .id(session.stableId)
+                let groups = groupedSessions
+                let showHeaders = groups.count > 1
+
+                ForEach(Array(groups.enumerated()), id: \.element.project) { index, group in
+                    if showHeaders {
+                        ProjectGroupHeader(
+                            project: group.project,
+                            count: group.sessions.count
+                        )
+                        .padding(.top, index == 0 ? 0 : 8)
+                    }
+
+                    ForEach(group.sessions) { session in
+                        InstanceRow(
+                            session: session,
+                            onFocus: { focusSession(session) },
+                            onChat: { openChat(session) },
+                            onArchive: { archiveSession(session) },
+                            onApprove: { approveSession(session) },
+                            onReject: { rejectSession(session) }
+                        )
+                        .id(session.stableId)
+                    }
                 }
             }
             .padding(.vertical, 4)
@@ -88,14 +109,13 @@ struct ClaudeInstancesView: View {
     // MARK: - Actions
 
     private func focusSession(_ session: SessionState) {
-        guard session.isInTmux else { return }
-
         Task {
-            if let pid = session.pid {
-                _ = await YabaiController.shared.focusWindow(forClaudePid: pid)
-            } else {
-                _ = await YabaiController.shared.focusWindow(forWorkingDirectory: session.cwd)
-            }
+            _ = await AppFocusManager.shared.focusSession(
+                pid: session.pid,
+                cwd: session.cwd,
+                isInTmux: session.isInTmux,
+                sessionTitle: session.displayTitle
+            )
         }
     }
 
@@ -125,14 +145,34 @@ struct InstanceRow: View {
     let onArchive: () -> Void
     let onApprove: () -> Void
     let onReject: () -> Void
+    var onAnswer: ((String) -> Void)? = nil
 
     @State private var isHovered = false
     @State private var spinnerPhase = 0
-    @State private var isYabaiAvailable = false
+    @State private var showDetail = false
 
     private let claudeOrange = Color(red: 0.85, green: 0.47, blue: 0.34)
     private let spinnerSymbols = ["·", "✢", "✳", "∗", "✻", "✽"]
     private let spinnerTimer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
+
+    /// Terminal app name based on TTY (displayed like Vibe Island "Claude iTerm 7m")
+    private var terminalName: String {
+        if session.isInTmux { return "tmux" }
+        // Default to Ghostty since the user uses cmux/Ghostty
+        return "Ghostty"
+    }
+
+    /// Format time active as compact string (e.g., "4m", "1h 12m")
+    private var timeActive: String? {
+        guard let lastUserDate = session.lastUserMessageDate else { return nil }
+        let elapsed = Date().timeIntervalSince(lastUserDate)
+        if elapsed < 60 { return "<1m" }
+        let minutes = Int(elapsed / 60)
+        if minutes < 60 { return "\(minutes)m" }
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+        return "\(hours)h \(remainingMinutes)m"
+    }
 
     /// Whether we're showing the approval UI
     private var isWaitingForApproval: Bool {
@@ -146,149 +186,210 @@ struct InstanceRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            // State indicator on left
-            stateIndicator
-                .frame(width: 14)
+        VStack(alignment: .leading, spacing: 0) {
+            // Main row: status dot + title + actions
+            HStack(alignment: .center, spacing: 10) {
+                stateIndicator
+                    .frame(width: 14)
 
-            // Text content
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.displayTitle)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    // Title row: session name + terminal + time (like Vibe Island)
+                    HStack(spacing: 6) {
+                        Text(session.displayTitle)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
 
-                // Show tool call when waiting for approval, otherwise last activity
-                if isWaitingForApproval, let toolName = session.pendingToolName {
-                    // Show tool name in amber + input on same line
-                    HStack(spacing: 4) {
+                        Text(terminalName)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.3))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.white.opacity(0.06))
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                    }
+
+                    subtitleView
+                }
+
+                Spacer(minLength: 0)
+
+                actionButtons
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 14)
+            .padding(.vertical, 10)
+
+            // Expanded permission detail (inline diff, question buttons)
+            if isWaitingForApproval, let permContext = session.activePermission {
+                PermissionDetailView(
+                    context: permContext,
+                    onApprove: onApprove,
+                    onDeny: onReject,
+                    onAnswer: onAnswer
+                )
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            // Activity log (expanded on tap)
+            if showDetail && !isWaitingForApproval {
+                ActivityLogView(session: session)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            onChat()
+        }
+        .onTapGesture(count: 1) {
+            if session.phase == .waitingForInput {
+                // "Done" state: tap anywhere to jump to terminal
+                onFocus()
+            } else {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    showDetail.toggle()
+                }
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(rowBackground)
+        )
+        .onHover { isHovered = $0 }
+    }
+
+    /// Row background color based on state
+    private var rowBackground: Color {
+        if session.phase == .waitingForInput {
+            // Green tint for "Done" state like Vibe Island
+            return isHovered ? TerminalColors.green.opacity(0.12) : TerminalColors.green.opacity(0.06)
+        }
+        return isHovered ? Color.white.opacity(0.06) : Color.clear
+    }
+
+    // MARK: - Subtitle
+
+    @ViewBuilder
+    private var subtitleView: some View {
+        if isWaitingForApproval, let toolName = session.pendingToolName {
+            HStack(spacing: 4) {
+                Text(MCPToolFormatter.formatToolName(toolName))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(TerminalColors.amber.opacity(0.9))
+                Text("Needs approval")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+        } else if session.phase == .waitingForInput {
+            // "Done, click to jump" - prominent action bar
+            Button { onFocus() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(TerminalColors.green)
+                    Text("Done")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(TerminalColors.green)
+                    Text("click to jump")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
+                    Spacer()
+                    Image(systemName: "arrow.right.circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(TerminalColors.green.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+        } else if let role = session.lastMessageRole {
+            switch role {
+            case "tool":
+                HStack(spacing: 4) {
+                    if let toolName = session.lastToolName {
                         Text(MCPToolFormatter.formatToolName(toolName))
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(TerminalColors.amber.opacity(0.9))
-                        if isInteractiveTool {
-                            Text("Needs your input")
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
-                                .lineLimit(1)
-                        } else if let input = session.pendingToolInput {
-                            Text(input)
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
-                                .lineLimit(1)
-                        }
+                            .foregroundColor(.white.opacity(0.5))
                     }
-                } else if let role = session.lastMessageRole {
-                    switch role {
-                    case "tool":
-                        // Tool call - show tool name + input
-                        HStack(spacing: 4) {
-                            if let toolName = session.lastToolName {
-                                Text(MCPToolFormatter.formatToolName(toolName))
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundColor(.white.opacity(0.5))
-                            }
-                            if let input = session.lastMessage {
-                                Text(input)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.4))
-                                    .lineLimit(1)
-                            }
-                        }
-                    case "user":
-                        // User message - prefix with "You:"
-                        HStack(spacing: 4) {
-                            Text("You:")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
-                            if let msg = session.lastMessage {
-                                Text(msg)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.4))
-                                    .lineLimit(1)
-                            }
-                        }
-                    default:
-                        // Assistant message - just show text
-                        if let msg = session.lastMessage {
-                            Text(msg)
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.4))
-                                .lineLimit(1)
-                        }
+                    if let input = session.lastMessage {
+                        Text(input)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.4))
+                            .lineLimit(1)
                     }
-                } else if let lastMsg = session.lastMessage {
-                    Text(lastMsg)
+                }
+            case "user":
+                HStack(spacing: 4) {
+                    Text("You:")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                    if let msg = session.lastMessage {
+                        Text(msg)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.4))
+                            .lineLimit(1)
+                    }
+                }
+            default:
+                if let msg = session.lastMessage {
+                    Text(msg)
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.4))
                         .lineLimit(1)
                 }
             }
+        } else if let lastMsg = session.lastMessage {
+            Text(lastMsg)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.4))
+                .lineLimit(1)
+        }
+    }
 
-            Spacer(minLength: 0)
+    // MARK: - Action Buttons
 
-            // Action icons or approval buttons
-            if isWaitingForApproval && isInteractiveTool {
-                // Interactive tools like AskUserQuestion - show chat + terminal buttons
-                HStack(spacing: 8) {
-                    IconButton(icon: "bubble.left") {
-                        onChat()
-                    }
-
-                    // Go to Terminal button (only if yabai available)
-                    if isYabaiAvailable {
-                        TerminalButton(
-                            isEnabled: session.isInTmux,
-                            onTap: { onFocus() }
-                        )
-                    }
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            } else if isWaitingForApproval {
-                InlineApprovalButtons(
-                    onChat: onChat,
-                    onApprove: onApprove,
-                    onReject: onReject
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            } else {
-                HStack(spacing: 8) {
-                    // Chat icon - always show
-                    IconButton(icon: "bubble.left") {
-                        onChat()
-                    }
-
-                    // Focus icon (only for tmux instances with yabai)
-                    if session.isInTmux && isYabaiAvailable {
-                        IconButton(icon: "eye") {
-                            onFocus()
-                        }
-                    }
-
-                    // Archive button - only for idle or completed sessions
-                    if session.phase == .idle || session.phase == .waitingForInput {
-                        IconButton(icon: "archivebox") {
-                            onArchive()
-                        }
-                    }
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+    @ViewBuilder
+    private var actionButtons: some View {
+        if isWaitingForApproval {
+            // Approval actions are in the expanded PermissionDetailView below
+            HStack(spacing: 8) {
+                IconButton(icon: "bubble.left") { onChat() }
+                IconButton(icon: "eye") { onFocus() }
             }
-        }
-        .padding(.leading, 8)
-        .padding(.trailing, 14)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            onChat()
-        }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
-        )
-        .onHover { isHovered = $0 }
-        .task {
-            isYabaiAvailable = await WindowFinder.shared.isYabaiAvailable()
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        } else if session.phase == .waitingForInput {
+            // "Done" state: prominent jump button
+            HStack(spacing: 8) {
+                if let time = timeActive {
+                    Text(time)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.3))
+                }
+                TerminalButton(isEnabled: true, onTap: { onFocus() })
+                IconButton(icon: "archivebox") { onArchive() }
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        } else {
+            HStack(spacing: 8) {
+                if let time = timeActive {
+                    Text(time)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.3))
+                }
+                IconButton(icon: "bubble.left") { onChat() }
+                IconButton(icon: "eye") { onFocus() }
+                if session.phase == .idle {
+                    IconButton(icon: "archivebox") { onArchive() }
+                }
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
         }
     }
 
@@ -320,6 +421,25 @@ struct InstanceRow: View {
         }
     }
 
+}
+
+// MARK: - Project Group Header
+
+struct ProjectGroupHeader: View {
+    let project: String
+    let count: Int
+
+    var body: some View {
+        HStack {
+            Text("\(project) (\(count))")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white.opacity(0.5))
+
+            Spacer()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+    }
 }
 
 // MARK: - Inline Approval Buttons
