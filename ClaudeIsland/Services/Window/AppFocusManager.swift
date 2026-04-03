@@ -74,15 +74,21 @@ actor AppFocusManager {
                         }
                     }
 
-                    Self.logger.error("FOCUS: no tree match, trying find-window --content")
+                    Self.logger.error("FOCUS: no tree match, trying first unmatched pane")
 
-                    // Fallback: find-window --content (searches terminal screen text)
-                    for term in terms {
-                        Self.logger.error("FOCUS: trying content search: '\(term, privacy: .public)'")
-                        let result = Self.shell(cmux, ["find-window", "--content", "--select", term])
-                        Self.logger.error("FOCUS: content result: '\(result ?? "nil", privacy: .public)'")
-                        if let result = result, !result.lowercased().contains("no matches"), !result.isEmpty {
-                            Self.logger.error("FOCUS: content MATCHED '\(term, privacy: .public)'")
+                    // Fallback: focus the first pane that has a Claude session
+                    // (any pane with a surface that's a terminal, not a shell prompt)
+                    if let tree = Self.shell(cmux, ["tree", "--all"]) {
+                        var panes: [String] = []
+                        for line in tree.components(separatedBy: "\n") {
+                            if let range = line.range(of: "pane:\\d+", options: .regularExpression) {
+                                panes.append(String(line[range]))
+                            }
+                        }
+                        // Try pane:1 first (most likely the unmatched session)
+                        for pane in panes {
+                            Self.logger.error("FOCUS: fallback trying \(pane, privacy: .public)")
+                            let _ = Self.shell(cmux, ["focus-pane", "--pane", pane])
                             Self.activateGhostty()
                             continuation.resume(returning: true)
                             return
