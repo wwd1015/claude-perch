@@ -116,7 +116,7 @@ struct ClaudeInstancesView: View {
                 isInTmux: session.isInTmux,
                 sessionTitle: session.displayTitle,
                 sessionId: session.sessionId,
-                sessionSummary: session.summary
+                sessionSummary: session.summary ?? session.windowHint ?? session.firstUserMessage
             )
         }
     }
