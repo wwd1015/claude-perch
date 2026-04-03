@@ -70,6 +70,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         HookInstaller.installIfNeeded()
         NSApplication.shared.setActivationPolicy(.accessory)
 
+        // Suppress cmux notifications (Claude Island handles them)
+        Task {
+            await AppFocusManager.shared.suppressCmuxNotifications()
+        }
+
         windowManager = WindowManager()
         _ = windowManager?.setupNotchWindow()
 
@@ -92,6 +97,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Restore cmux notifications before quitting
+        let cmuxPaths = [
+            "/Applications/cmux.app/Contents/Resources/bin/cmux",
+            "/usr/local/bin/cmux",
+            "/opt/homebrew/bin/cmux"
+        ]
+        for path in cmuxPaths {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: path)
+                process.arguments = ["set-app-focus", "clear"]
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+                try? process.run()
+                process.waitUntilExit()
+                break
+            }
+        }
+
         Mixpanel.mainInstance().flush()
         updateCheckTimer?.invalidate()
         screenObserver = nil

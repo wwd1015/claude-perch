@@ -111,6 +111,24 @@ actor AppFocusManager {
         }
     }
 
+    // MARK: - cmux Notification Suppression
+
+    /// Tell cmux that Claude Island is handling notifications (suppresses cmux's own)
+    func suppressCmuxNotifications() {
+        guard let cmux = cmuxPath else { return }
+        Task.detached {
+            Self.runCmuxCommand(cmux, args: ["set-app-focus", "active"])
+        }
+    }
+
+    /// Tell cmux to resume its own notifications (when Claude Island quits)
+    func restoreCmuxNotifications() {
+        guard let cmux = cmuxPath else { return }
+        Task.detached {
+            Self.runCmuxCommand(cmux, args: ["set-app-focus", "clear"])
+        }
+    }
+
     // MARK: - Generic App Activation
 
     private nonisolated static func activateTerminalApp() -> Bool {
