@@ -377,6 +377,18 @@ struct NotchView: View {
 
             Spacer()
 
+            // Sound mute toggle (like Vibe Island)
+            Button {
+                soundEnabled.toggle()
+            } label: {
+                Image(systemName: soundEnabled ? "speaker.wave.2" : "speaker.slash")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.4))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
             // Settings gear (opens separate window like Vibe Island)
             Button {
                 SettingsWindowController.shared.showSettings()
@@ -572,6 +584,24 @@ struct NotchView: View {
         }
 
         previousWaitingForInputIds = currentIds
+    }
+
+    /// Check if a fullscreen app is active on the current screen
+    private var isFullscreenAppActive: Bool {
+        guard hideInFullscreen else { return false }
+        // Check if the frontmost app is in fullscreen
+        if let frontApp = NSWorkspace.shared.frontmostApplication {
+            for window in NSApplication.shared.windows {
+                if window.styleMask.contains(.fullScreen) {
+                    return true
+                }
+            }
+        }
+        // Check via screen's visible frame vs frame
+        if let screen = NSScreen.main {
+            return screen.visibleFrame.height == screen.frame.height
+        }
+        return false
     }
 
     /// Determine if notification sound should play for the given sessions
