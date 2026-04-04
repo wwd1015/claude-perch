@@ -211,7 +211,7 @@ class ClaudeSessionMonitor: ObservableObject {
 
     /// Reconstruct the cwd path from the Claude projects directory name
     /// e.g., "-Users-alan-Documents-GitHub-claude-island" -> "/Users/alan/Documents/GitHub/claude-island"
-    private static func reconstructCwd(from dirName: String) -> String {
+    private nonisolated static func reconstructCwd(from dirName: String) -> String {
         let withoutPrefix = String(dirName.dropFirst()) // Remove leading "-"
         let parts = withoutPrefix.components(separatedBy: "-")
 
