@@ -34,17 +34,23 @@ class GlobalHotkeyManager {
     private init() {}
 
     func start() {
-        // Global monitor: works even when app is not focused
+        // Global monitor: works from ANY app (requires Accessibility permission)
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handleKeyEvent(event)
         }
 
-        // Local monitor: works when our window is active
+        // Local monitor: for when Claude Island itself is the key app
+        // (rare since we run as .accessory, but needed for settings window)
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if self?.handleKeyEvent(event) == true {
-                return nil // Consume the event
+                return nil
             }
             return event
+        }
+
+        // Check accessibility permission
+        if !AXIsProcessTrusted() {
+            logger.warning("Accessibility not granted - global hotkeys won't work. Enable in System Settings > Privacy > Accessibility")
         }
 
         logger.info("Hotkey monitors started (^G/Y/N/A/B/T/1-9)")

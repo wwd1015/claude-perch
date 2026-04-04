@@ -309,29 +309,43 @@ struct PermissionDetailView: View {
         }
     }
 
-    // MARK: - Approval Buttons (4 buttons like Vibe Island)
+    // MARK: - Approval Buttons (dynamic based on tool type like Vibe Island)
 
     private var approvalButtons: some View {
         HStack(spacing: 6) {
-            // Deny (dark)
+            // Deny (always shown)
             approvalButton(label: "Deny", color: Color.white.opacity(0.1), textColor: .white.opacity(0.7)) {
                 onDeny()
             }
 
-            // Allow Once (dark)
+            // Allow Once (always shown)
             approvalButton(label: "Allow Once", color: Color.white.opacity(0.1), textColor: .white.opacity(0.7)) {
                 onApprove()
             }
 
-            // Always Allow (blue)
-            approvalButton(label: "Always Allow", color: Color(red: 0.3, green: 0.5, blue: 0.8), textColor: .white) {
-                onApprove()
+            // Always Allow (shown for tools that support it: Bash, Edit, Write)
+            if showsAlwaysAllow {
+                approvalButton(label: "Always Allow", color: Color(red: 0.3, green: 0.5, blue: 0.8), textColor: .white) {
+                    onApprove()
+                }
             }
 
-            // Bypass (red/orange)
-            approvalButton(label: "Bypass", color: Color(red: 0.7, green: 0.35, blue: 0.3), textColor: .white) {
-                onApprove()
+            // Bypass (shown only for Bash - dangerous operations)
+            if context.toolName == "Bash" {
+                approvalButton(label: "Bypass", color: Color(red: 0.7, green: 0.35, blue: 0.3), textColor: .white) {
+                    onApprove()
+                }
             }
+        }
+    }
+
+    /// Whether to show "Always Allow" based on tool type
+    private var showsAlwaysAllow: Bool {
+        switch context.toolName {
+        case "Bash", "Edit", "Write", "Glob", "Grep", "Read":
+            return true
+        default:
+            return false
         }
     }
 
