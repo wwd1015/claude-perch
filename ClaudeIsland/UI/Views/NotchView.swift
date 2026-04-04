@@ -562,12 +562,11 @@ struct NotchView: View {
                 }
             }
 
-            // Open the notch panel to show "Done" state
-            // Smart suppression: don't expand if terminal is focused
-            if viewModel.status == .closed {
-                if smartSuppression && TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
-                    // Terminal is focused, just bounce
-                } else {
+            // Only pop open for "Done" if smart suppression is off
+            // AND the terminal isn't visible (user isn't looking at it)
+            // Regular text responses should NOT trigger a popup
+            if viewModel.status == .closed && !smartSuppression {
+                if !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
                     viewModel.notchOpen(reason: .notification)
                 }
             }
