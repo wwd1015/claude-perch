@@ -230,8 +230,8 @@ class ClaudeSessionMonitor: ObservableObject {
                     guard let attrs = try? fileManager.attributesOfItem(atPath: filePath),
                           let modDate = attrs[.modificationDate] as? Date else { continue }
 
-                    // Only consider sessions active in the last 5 minutes
-                    guard Date().timeIntervalSince(modDate) < 300 else { continue }
+                    // Only consider sessions active in the last 10 minutes
+                    guard Date().timeIntervalSince(modDate) < 600 else { continue }
 
                     let sessionId = String(jsonlFile.dropLast(6)) // Remove .jsonl
 

@@ -585,23 +585,26 @@ struct NotchView: View {
 
     // MARK: - Usage Stats Bar (like Vibe Island top bar)
 
-    /// Get the most recent rate limits from any session
-    private var latestRateLimits: RateLimitInfo? {
-        sessionMonitor.instances
-            .compactMap { $0.rateLimits }
-            .last
-    }
+    /// Read today's usage stats from ~/.claude/stats-cache.json
+    private var todayStats: (messages: Int, tools: Int)? {
+        let path = NSHomeDirectory() + "/.claude/stats-cache.json"
+        guard let data = FileManager.default.contents(atPath: path),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let daily = json["dailyActivity"] as? [[String: Any]] else { return nil }
 
-    /// Format reset time as remaining duration
-    private func formatResetTime(_ timestamp: Double) -> String {
-        let resetDate = Date(timeIntervalSince1970: timestamp)
-        let remaining = resetDate.timeIntervalSinceNow
-        if remaining <= 0 { return "" }
-        let hours = Int(remaining / 3600)
-        let days = Int(remaining / 86400)
-        if days > 0 { return "\(days)d" }
-        if hours > 0 { return "\(hours)h" }
-        return "<1h"
+        let today = ISO8601DateFormatter().string(from: Date()).prefix(10) // "2026-04-04"
+        let yesterday = {
+            let cal = Calendar.current
+            let d = cal.date(byAdding: .day, value: -1, to: Date())!
+            return ISO8601DateFormatter().string(from: d).prefix(10)
+        }()
+
+        // Try today first, fall back to yesterday (stats may not be computed yet today)
+        let entry = daily.last { ($0["date"] as? String)?.hasPrefix(String(today)) == true }
+            ?? daily.last { ($0["date"] as? String)?.hasPrefix(String(yesterday)) == true }
+
+        guard let e = entry else { return nil }
+        return (messages: e["messageCount"] as? Int ?? 0, tools: e["toolCallCount"] as? Int ?? 0)
     }
 
     @ViewBuilder
@@ -615,50 +618,30 @@ struct NotchView: View {
                 .fill(activeSessions > 0 ? Color.orange : TerminalColors.green)
                 .frame(width: 8, height: 8)
 
-            // API usage stats (like Vibe Island: "5h 0% | 7d 12% 5d")
-            if let limits = latestRateLimits {
-                if let fiveHour = limits.fiveHour, let pct = fiveHour.usedPercentage {
-                    Text("5h")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white.opacity(0.7))
-                    Text("\(Int(pct))%")
-                        .font(.system(size: 10))
-                        .foregroundColor(pct > 80 ? Color.red.opacity(0.9) : .white.opacity(0.4))
-                }
+            // Session time
+            if let oldest = sessionMonitor.instances.min(by: { $0.createdAt < $1.createdAt }) {
+                let elapsed = Date().timeIntervalSince(oldest.createdAt)
+                let hours = Int(elapsed / 3600)
+                let minutes = Int(elapsed.truncatingRemainder(dividingBy: 3600) / 60)
+                Text("\(hours)h")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white.opacity(0.7))
+                Text("\(String(format: "%02d", minutes))m")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.4))
+            }
 
+            // Today's usage from stats-cache.json
+            if let stats = todayStats {
                 Text("|")
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.2))
-
-                if let sevenDay = limits.sevenDay, let pct = sevenDay.usedPercentage {
-                    Text("7d")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white.opacity(0.7))
-                    Text("\(Int(pct))%")
-                        .font(.system(size: 10))
-                        .foregroundColor(pct > 80 ? Color.red.opacity(0.9) : .white.opacity(0.4))
-                    if let resetsAt = sevenDay.resetsAt {
-                        let resetStr = formatResetTime(resetsAt)
-                        if !resetStr.isEmpty {
-                            Text(resetStr)
-                                .font(.system(size: 10))
-                                .foregroundColor(.white.opacity(0.3))
-                        }
-                    }
-                }
-            } else {
-                // Fallback: show session time when no rate limit data
-                if let oldest = sessionMonitor.instances.min(by: { $0.createdAt < $1.createdAt }) {
-                    let elapsed = Date().timeIntervalSince(oldest.createdAt)
-                    let hours = Int(elapsed / 3600)
-                    let minutes = Int(elapsed.truncatingRemainder(dividingBy: 3600) / 60)
-                    Text("\(hours)h")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white.opacity(0.7))
-                    Text("\(String(format: "%02d", minutes))m")
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.4))
-                }
+                Text("\(stats.messages)msg")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.4))
+                Text("\(stats.tools)tools")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.4))
             }
 
             Text("|")
@@ -671,8 +654,6 @@ struct NotchView: View {
                 .foregroundColor(.white.opacity(0.4))
 
             Spacer()
-
-            // Sound + gear are already in the header row
         }
     }
 
