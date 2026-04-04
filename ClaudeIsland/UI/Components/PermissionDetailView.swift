@@ -17,12 +17,14 @@ struct PermissionDetailView: View {
     let onApprove: () -> Void
     let onDeny: () -> Void
     let onAnswer: ((String) -> Void)?
+    let onApproveAlways: (() -> Void)?
 
-    init(context: PermissionContext, onApprove: @escaping () -> Void, onDeny: @escaping () -> Void, onAnswer: ((String) -> Void)? = nil) {
+    init(context: PermissionContext, onApprove: @escaping () -> Void, onDeny: @escaping () -> Void, onAnswer: ((String) -> Void)? = nil, onApproveAlways: (() -> Void)? = nil) {
         self.context = context
         self.onApprove = onApprove
         self.onDeny = onDeny
         self.onAnswer = onAnswer
+        self.onApproveAlways = onApproveAlways
     }
 
     var body: some View {
@@ -313,16 +315,14 @@ struct PermissionDetailView: View {
         }
     }
 
-    // MARK: - Approval Buttons (matches terminal's Yes/No options)
+    // MARK: - Approval Buttons (Deny / Allow / Always Allow - matches terminal)
 
     private var approvalButtons: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             // Deny
-            Button {
-                onDeny()
-            } label: {
+            Button { onDeny() } label: {
                 Text("Deny")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white.opacity(0.7))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
@@ -331,19 +331,37 @@ struct PermissionDetailView: View {
             }
             .buttonStyle(.plain)
 
-            // Allow
-            Button {
-                onApprove()
-            } label: {
+            // Allow (one-time)
+            Button { onApprove() } label: {
                 Text("Allow")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.black)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.8))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.9))
+                    .background(Color.white.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+
+            // Always Allow (adds permission rule to settings.json)
+            Button { onAlwaysAllowAction() } label: {
+                Text("Always Allow")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color(red: 0.3, green: 0.5, blue: 0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func onAlwaysAllowAction() {
+        if let handler = onApproveAlways {
+            handler()
+        } else {
+            onApprove() // Fallback to regular approve
         }
     }
 

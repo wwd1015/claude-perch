@@ -84,7 +84,7 @@ struct HookEvent: Codable, Sendable {
 
 /// Response to send back to the hook
 struct HookResponse: Codable {
-    let decision: String // "allow", "deny", or "ask"
+    let decision: String // "allow", "allowAlways", "deny", or "ask"
     let reason: String?
 }
 

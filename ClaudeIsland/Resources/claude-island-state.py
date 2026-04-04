@@ -133,7 +133,44 @@ def main():
             reason = response.get("reason", "")
 
             if decision == "allow":
-                # Output JSON to approve
+                # Output JSON to approve (one-time)
+                output = {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PermissionRequest",
+                        "decision": {"behavior": "allow"},
+                    }
+                }
+                print(json.dumps(output))
+                sys.exit(0)
+
+            elif decision == "allowAlways":
+                # Approve AND add a permanent permission rule
+                tool_name = data.get("tool_name", "")
+                rule = tool_name
+                # For Bash, include the command pattern
+                if tool_name == "Bash" and tool_input:
+                    cmd = tool_input.get("command", "")
+                    if cmd:
+                        # Extract first word as the command pattern
+                        first_word = cmd.split()[0] if cmd.split() else cmd
+                        rule = f"Bash({first_word} *)"
+
+                # Add rule to settings.json
+                try:
+                    settings_path = os.path.expanduser("~/.claude/settings.json")
+                    with open(settings_path, "r") as f:
+                        settings = json.load(f)
+                    if "permissions" not in settings:
+                        settings["permissions"] = {}
+                    if "allow" not in settings["permissions"]:
+                        settings["permissions"]["allow"] = []
+                    if rule not in settings["permissions"]["allow"]:
+                        settings["permissions"]["allow"].append(rule)
+                        with open(settings_path, "w") as f:
+                            json.dump(settings, f, indent=2)
+                except Exception:
+                    pass  # Don't fail the approval if settings update fails
+
                 output = {
                     "hookSpecificOutput": {
                         "hookEventName": "PermissionRequest",

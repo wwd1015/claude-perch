@@ -95,7 +95,8 @@ struct ClaudeInstancesView: View {
                             onChat: { openChat(session) },
                             onArchive: { archiveSession(session) },
                             onApprove: { approveSession(session) },
-                            onReject: { rejectSession(session) }
+                            onReject: { rejectSession(session) },
+                            onApproveAlways: { approveAlwaysSession(session) }
                         )
                         .id(session.stableId)
                     }
@@ -129,6 +130,10 @@ struct ClaudeInstancesView: View {
         sessionMonitor.approvePermission(sessionId: session.sessionId)
     }
 
+    private func approveAlwaysSession(_ session: SessionState) {
+        sessionMonitor.approveAlwaysPermission(sessionId: session.sessionId)
+    }
+
     private func rejectSession(_ session: SessionState) {
         sessionMonitor.denyPermission(sessionId: session.sessionId, reason: nil)
     }
@@ -148,6 +153,7 @@ struct InstanceRow: View {
     let onApprove: () -> Void
     let onReject: () -> Void
     var onAnswer: ((String) -> Void)? = nil
+    var onApproveAlways: (() -> Void)? = nil
 
     @State private var isHovered = false
     @State private var spinnerPhase = 0
@@ -281,7 +287,8 @@ struct InstanceRow: View {
                     context: permContext,
                     onApprove: onApprove,
                     onDeny: onReject,
-                    onAnswer: onAnswer
+                    onAnswer: onAnswer,
+                    onApproveAlways: onApproveAlways
                 )
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
