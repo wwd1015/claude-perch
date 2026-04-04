@@ -562,14 +562,8 @@ struct NotchView: View {
                 }
             }
 
-            // Only pop open for "Done" if smart suppression is off
-            // AND the terminal isn't visible (user isn't looking at it)
-            // Regular text responses should NOT trigger a popup
-            if viewModel.status == .closed && !smartSuppression {
-                if !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
-                    viewModel.notchOpen(reason: .notification)
-                }
-            }
+            // Don't pop open for "Ready" state - just update the closed notch bar
+            // Only permission requests should auto-pop (handled in handlePendingSessionsChange)
 
             // Trigger bounce animation to get user's attention
             DispatchQueue.main.async {
