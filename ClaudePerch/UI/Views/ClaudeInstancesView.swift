@@ -267,27 +267,15 @@ struct InstanceRow: View {
                             .foregroundColor(.white.opacity(0.4))
                     }
 
-                    // Jump shortcut (always shown)
-                    Button { onFocus() } label: {
-                        Text("^G ↗")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.4))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .background(Color.white.opacity(0.06))
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                    }
-                    .buttonStyle(.plain)
-
-                    // Archive/dismiss button (visible on hover)
+                    // Archive button (visible on hover)
                     if isHovered {
                         Button { onArchive() } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 9, weight: .medium))
+                            Image(systemName: "archivebox")
+                                .font(.system(size: 10, weight: .medium))
                                 .foregroundColor(.white.opacity(0.4))
-                                .frame(width: 20, height: 20)
+                                .frame(width: 22, height: 22)
                                 .background(Color.white.opacity(0.08))
-                                .clipShape(Circle())
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
                         }
                         .buttonStyle(.plain)
                         .transition(.opacity)

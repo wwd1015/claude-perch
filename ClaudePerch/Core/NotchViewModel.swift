@@ -79,7 +79,7 @@ class NotchViewModel: ObservableObject {
         case .instances:
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
-                height: 520  // Increased to fit permission detail + question options
+                height: 400
             )
         }
     }

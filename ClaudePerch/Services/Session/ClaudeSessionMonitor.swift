@@ -36,11 +36,16 @@ class ClaudeSessionMonitor: ObservableObject {
         // Discover existing sessions on launch (like Vibe Island)
         discoverExistingSessions()
 
-        // Periodically clean up stale sessions (every 60s)
-        staleCleanupTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        // Periodically clean up stale sessions (every 30s)
+        staleCleanupTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.cleanupStaleSessions()
             }
+        }
+
+        // Run initial cleanup after a short delay (let discovery finish first)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            self?.cleanupStaleSessions()
         }
 
         HookSocketServer.shared.start(
@@ -180,14 +185,19 @@ class ClaudeSessionMonitor: ObservableObject {
 
     // MARK: - Stale Session Cleanup
 
-    /// Remove sessions whose processes have died and have been inactive
+    /// Remove sessions whose processes have died or have been inactive too long
     private func cleanupStaleSessions() {
         for session in instances {
-            guard let pid = session.pid else { continue }
-            // Check if process is still alive (kill with signal 0 just checks existence)
-            if kill(pid_t(pid), 0) != 0 {
+            if let pid = session.pid {
+                // Check if process is still alive (kill with signal 0 just checks existence)
+                if kill(pid_t(pid), 0) != 0 {
+                    // Process is dead — remove immediately
+                    archiveSession(sessionId: session.sessionId)
+                }
+            } else {
+                // No PID (discovered on launch) — remove if inactive for 2+ minutes
                 let staleDuration = Date().timeIntervalSince(session.lastActivity)
-                if staleDuration > 120 { // 2 minutes inactive + dead process
+                if staleDuration > 120 {
                     archiveSession(sessionId: session.sessionId)
                 }
             }
