@@ -328,14 +328,24 @@ struct InstanceRow: View {
     @ViewBuilder
     private var subtitleView: some View {
         if isWaitingForApproval, let toolName = session.pendingToolName {
-            // Permission request
-            HStack(spacing: 4) {
-                Text(MCPToolFormatter.formatToolName(toolName))
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(TerminalColors.amber.opacity(0.9))
-                Text("Needs approval")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.5))
+            // Permission request or Claude's Question
+            if toolName == "AskUserQuestion" {
+                HStack(spacing: 4) {
+                    Text("🧡")
+                        .font(.system(size: 10))
+                    Text("Claude's Question")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(TerminalColors.amber.opacity(0.9))
+                }
+            } else {
+                HStack(spacing: 4) {
+                    Text(MCPToolFormatter.formatToolName(toolName))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(TerminalColors.amber.opacity(0.9))
+                    Text("Needs approval")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
+                }
             }
         } else if session.phase == .waitingForInput {
             // "Ready" state like Vibe Island (green text, click anywhere to jump)

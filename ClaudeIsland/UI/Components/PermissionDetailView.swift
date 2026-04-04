@@ -27,29 +27,33 @@ struct PermissionDetailView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Header: amber dot + "Permission Request"
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(TerminalColors.amber)
-                    .frame(width: 8, height: 8)
-                Text("Permission Request")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-            }
+            // For AskUserQuestion: skip the generic headers, go straight to Claude's Question
+            // For other tools: show Permission Request + tool line
+            if context.toolName != "AskUserQuestion" {
+                // Header: amber dot + "Permission Request"
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(TerminalColors.amber)
+                        .frame(width: 8, height: 8)
+                    Text("Permission Request")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                }
 
-            // Tool line: ⚠ Edit src/auth/middleware.ts
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(TerminalColors.amber)
-                Text(MCPToolFormatter.formatToolName(context.toolName))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(TerminalColors.amber)
-                if let filePath = extractString("file_path") {
-                    Text(filePath)
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.9))
-                        .lineLimit(1)
+                // Tool line: ⚠ Edit src/auth/middleware.ts
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(TerminalColors.amber)
+                    Text(MCPToolFormatter.formatToolName(context.toolName))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(TerminalColors.amber)
+                    if let filePath = extractString("file_path") {
+                        Text(filePath)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.9))
+                            .lineLimit(1)
+                    }
                 }
             }
 
