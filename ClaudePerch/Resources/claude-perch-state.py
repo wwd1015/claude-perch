@@ -86,6 +86,9 @@ def main():
     claude_pid = os.getppid()
     tty = get_tty()
 
+    # Extract rate limits if present
+    rate_limits = data.get("rate_limits", None)
+
     # Build state object
     state = {
         "session_id": session_id,
@@ -94,6 +97,10 @@ def main():
         "pid": claude_pid,
         "tty": tty,
     }
+
+    # Include rate limits when available
+    if rate_limits:
+        state["rate_limits"] = rate_limits
 
     # Map events to status
     if event == "UserPromptSubmit":

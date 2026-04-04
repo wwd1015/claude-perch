@@ -585,6 +585,25 @@ struct NotchView: View {
 
     // MARK: - Usage Stats Bar (like Vibe Island top bar)
 
+    /// Get the most recent rate limits from any session
+    private var latestRateLimits: RateLimitInfo? {
+        sessionMonitor.instances
+            .compactMap { $0.rateLimits }
+            .last
+    }
+
+    /// Format reset time as remaining duration
+    private func formatResetTime(_ timestamp: Double) -> String {
+        let resetDate = Date(timeIntervalSince1970: timestamp)
+        let remaining = resetDate.timeIntervalSinceNow
+        if remaining <= 0 { return "" }
+        let hours = Int(remaining / 3600)
+        let days = Int(remaining / 86400)
+        if days > 0 { return "\(days)d" }
+        if hours > 0 { return "\(hours)h" }
+        return "<1h"
+    }
+
     @ViewBuilder
     private var usageStatsBar: some View {
         let totalSessions = sessionMonitor.instances.count
@@ -596,18 +615,50 @@ struct NotchView: View {
                 .fill(activeSessions > 0 ? Color.orange : TerminalColors.green)
                 .frame(width: 8, height: 8)
 
-            // Session time
-            if let oldest = sessionMonitor.instances.min(by: { $0.createdAt < $1.createdAt }) {
-                let elapsed = Date().timeIntervalSince(oldest.createdAt)
-                let hours = Int(elapsed / 3600)
-                let minutes = Int(elapsed.truncatingRemainder(dividingBy: 3600) / 60)
-                Text("\(hours)h")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.white.opacity(0.7))
+            // API usage stats (like Vibe Island: "5h 0% | 7d 12% 5d")
+            if let limits = latestRateLimits {
+                if let fiveHour = limits.fiveHour, let pct = fiveHour.usedPercentage {
+                    Text("5h")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.7))
+                    Text("\(Int(pct))%")
+                        .font(.system(size: 10))
+                        .foregroundColor(pct > 80 ? Color.red.opacity(0.9) : .white.opacity(0.4))
+                }
 
-                Text("\(String(format: "%02d", minutes))m")
+                Text("|")
                     .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.4))
+                    .foregroundColor(.white.opacity(0.2))
+
+                if let sevenDay = limits.sevenDay, let pct = sevenDay.usedPercentage {
+                    Text("7d")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.7))
+                    Text("\(Int(pct))%")
+                        .font(.system(size: 10))
+                        .foregroundColor(pct > 80 ? Color.red.opacity(0.9) : .white.opacity(0.4))
+                    if let resetsAt = sevenDay.resetsAt {
+                        let resetStr = formatResetTime(resetsAt)
+                        if !resetStr.isEmpty {
+                            Text(resetStr)
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.3))
+                        }
+                    }
+                }
+            } else {
+                // Fallback: show session time when no rate limit data
+                if let oldest = sessionMonitor.instances.min(by: { $0.createdAt < $1.createdAt }) {
+                    let elapsed = Date().timeIntervalSince(oldest.createdAt)
+                    let hours = Int(elapsed / 3600)
+                    let minutes = Int(elapsed.truncatingRemainder(dividingBy: 3600) / 60)
+                    Text("\(hours)h")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.7))
+                    Text("\(String(format: "%02d", minutes))m")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.4))
+                }
             }
 
             Text("|")

@@ -135,6 +135,11 @@ actor SessionStore {
         }
         session.lastActivity = Date()
 
+        // Update rate limits if present
+        if let rateLimits = event.rateLimits {
+            session.rateLimits = rateLimits
+        }
+
         if event.status == "ended" {
             sessions.removeValue(forKey: sessionId)
             cancelPendingSync(sessionId: sessionId)

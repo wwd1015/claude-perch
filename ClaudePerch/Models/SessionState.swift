@@ -53,6 +53,11 @@ struct SessionState: Equatable, Identifiable, Sendable {
     /// This removes pre-/clear items that no longer exist in the JSONL
     var needsClearReconciliation: Bool
 
+    // MARK: - Rate Limits
+
+    /// API usage rate limits (from Claude Code hooks)
+    var rateLimits: RateLimitInfo?
+
     // MARK: - Timestamps
 
     var lastActivity: Date
