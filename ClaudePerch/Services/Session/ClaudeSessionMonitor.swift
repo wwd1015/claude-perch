@@ -195,9 +195,10 @@ class ClaudeSessionMonitor: ObservableObject {
                     archiveSession(sessionId: session.sessionId)
                 }
             } else {
-                // No PID (discovered on launch) — remove if inactive for 2+ minutes
+                // No PID (discovered on launch, never received a hook event)
+                // Remove if no hook event received within 30 seconds
                 let staleDuration = Date().timeIntervalSince(session.lastActivity)
-                if staleDuration > 120 {
+                if staleDuration > 30 {
                     archiveSession(sessionId: session.sessionId)
                 }
             }
@@ -229,8 +230,8 @@ class ClaudeSessionMonitor: ObservableObject {
                     guard let attrs = try? fileManager.attributesOfItem(atPath: filePath),
                           let modDate = attrs[.modificationDate] as? Date else { continue }
 
-                    // Only consider sessions active in the last 30 minutes
-                    guard Date().timeIntervalSince(modDate) < 1800 else { continue }
+                    // Only consider sessions active in the last 5 minutes
+                    guard Date().timeIntervalSince(modDate) < 300 else { continue }
 
                     let sessionId = String(jsonlFile.dropLast(6)) // Remove .jsonl
 
