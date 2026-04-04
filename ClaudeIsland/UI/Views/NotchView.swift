@@ -612,15 +612,7 @@ struct NotchView: View {
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.white.opacity(0.7))
 
-                // Context usage % (estimate from conversation size)
-                // Claude's context window is ~200K tokens. Use chat item count as proxy.
-                let totalItems = sessionMonitor.instances.reduce(0) { $0 + $1.chatItems.count }
-                let contextPercent = min(100, totalItems * 100 / max(1, 500)) // rough estimate
-                Text("\(contextPercent)%")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(contextPercent > 80 ? Color.red : contextPercent > 50 ? Color.orange : TerminalColors.green)
-
-                Text("\(hours)h\(String(format: "%02d", minutes))m")
+                Text("\(String(format: "%02d", minutes))m")
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.4))
             }

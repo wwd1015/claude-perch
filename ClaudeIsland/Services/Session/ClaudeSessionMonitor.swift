@@ -180,8 +180,10 @@ class ClaudeSessionMonitor: ObservableObject {
                     let sessionId = String(jsonlFile.dropLast(6)) // Remove .jsonl
 
                     // Convert dir name back to cwd path
-                    // e.g., "-Users-alan-Documents-GitHub-Cortex" -> "/Users/alan/Documents/GitHub/Cortex"
-                    let cwd = "/" + projectDir.dropFirst().replacingOccurrences(of: "-", with: "/")
+                    // e.g., "-Users-alan-Documents-GitHub-claude-island" -> "/Users/alan/Documents/GitHub/claude-island"
+                    // Can't just replace all hyphens because path components may contain hyphens
+                    // Try progressive reconstruction: replace hyphens one by one and check if path exists
+                    let cwd = Self.reconstructCwd(from: projectDir)
 
                     // Create a synthetic hook event to register the session
                     let event = HookEvent(
@@ -205,6 +207,42 @@ class ClaudeSessionMonitor: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Reconstruct the cwd path from the Claude projects directory name
+    /// e.g., "-Users-alan-Documents-GitHub-claude-island" -> "/Users/alan/Documents/GitHub/claude-island"
+    private static func reconstructCwd(from dirName: String) -> String {
+        let withoutPrefix = String(dirName.dropFirst()) // Remove leading "-"
+        let parts = withoutPrefix.components(separatedBy: "-")
+
+        // Try building the path progressively, checking if each prefix exists
+        var bestPath = "/" + withoutPrefix.replacingOccurrences(of: "-", with: "/")
+        var currentPath = ""
+
+        for i in 0..<parts.count {
+            if currentPath.isEmpty {
+                currentPath = "/" + parts[i]
+            } else {
+                // Try both "/" (new component) and "-" (part of same component)
+                let withSlash = currentPath + "/" + parts[i]
+                let withHyphen = currentPath + "-" + parts[i]
+
+                if FileManager.default.fileExists(atPath: withSlash) {
+                    currentPath = withSlash
+                } else if FileManager.default.fileExists(atPath: withHyphen) {
+                    currentPath = withHyphen
+                } else {
+                    // Neither exists yet, prefer slash (building the path up)
+                    currentPath = withSlash
+                }
+            }
+        }
+
+        // If the reconstructed path exists, use it. Otherwise fall back to simple replacement.
+        if FileManager.default.fileExists(atPath: currentPath) {
+            return currentPath
+        }
+        return bestPath
     }
 
     // MARK: - State Update
