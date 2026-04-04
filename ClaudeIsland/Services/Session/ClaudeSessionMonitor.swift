@@ -31,6 +31,9 @@ class ClaudeSessionMonitor: ObservableObject {
     // MARK: - Monitoring Lifecycle
 
     func startMonitoring() {
+        // Discover existing sessions on launch (like Vibe Island)
+        discoverExistingSessions()
+
         HookSocketServer.shared.start(
             onEvent: { event in
                 Task {
@@ -124,6 +127,64 @@ class ClaudeSessionMonitor: ObservableObject {
     func archiveSession(sessionId: String) {
         Task {
             await SessionStore.shared.process(.sessionEnded(sessionId: sessionId))
+        }
+    }
+
+    // MARK: - Session Discovery (on launch)
+
+    /// Scan ~/.claude/projects/ for recently active sessions and add them
+    private func discoverExistingSessions() {
+        Task.detached(priority: .userInitiated) {
+            let fileManager = FileManager.default
+            let projectsDir = NSHomeDirectory() + "/.claude/projects"
+
+            guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsDir) else { return }
+
+            for projectDir in projectDirs {
+                // Skip hidden dirs and non-project dirs
+                guard !projectDir.hasPrefix("."), projectDir.hasPrefix("-") else { continue }
+
+                let fullProjectDir = projectsDir + "/" + projectDir
+                guard let files = try? fileManager.contentsOfDirectory(atPath: fullProjectDir) else { continue }
+
+                // Find JSONL files modified in the last 30 minutes
+                let jsonlFiles = files.filter { $0.hasSuffix(".jsonl") && !$0.hasPrefix("agent-") }
+
+                for jsonlFile in jsonlFiles {
+                    let filePath = fullProjectDir + "/" + jsonlFile
+                    guard let attrs = try? fileManager.attributesOfItem(atPath: filePath),
+                          let modDate = attrs[.modificationDate] as? Date else { continue }
+
+                    // Only consider sessions active in the last 30 minutes
+                    guard Date().timeIntervalSince(modDate) < 1800 else { continue }
+
+                    let sessionId = String(jsonlFile.dropLast(6)) // Remove .jsonl
+
+                    // Convert dir name back to cwd path
+                    // e.g., "-Users-alan-Documents-GitHub-Cortex" -> "/Users/alan/Documents/GitHub/Cortex"
+                    let cwd = "/" + projectDir.dropFirst().replacingOccurrences(of: "-", with: "/")
+
+                    // Create a synthetic hook event to register the session
+                    let event = HookEvent(
+                        sessionId: sessionId,
+                        cwd: cwd,
+                        event: "SessionStart",
+                        status: "idle",
+                        pid: nil,
+                        tty: nil,
+                        tool: nil,
+                        toolInput: nil,
+                        toolUseId: nil,
+                        notificationType: nil,
+                        message: nil
+                    )
+
+                    await SessionStore.shared.process(.hookReceived(event))
+
+                    // Load the conversation history
+                    await SessionStore.shared.process(.loadHistory(sessionId: sessionId, cwd: cwd))
+                }
+            }
         }
     }
 
