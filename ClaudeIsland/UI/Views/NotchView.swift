@@ -683,12 +683,12 @@ struct NotchView: View {
         let manager = GlobalHotkeyManager.shared
 
         // ^G - Toggle panel open/close
-        manager.onTogglePanel = { [weak self] in
-            guard let self = self else { return }
-            if self.viewModel.status == .opened {
-                self.viewModel.notchClose()
+        let vm = viewModel
+        manager.onTogglePanel = {
+            if vm.status == .opened {
+                vm.notchClose()
             } else {
-                self.viewModel.notchOpen(reason: .click)
+                vm.notchOpen(reason: .click)
             }
         }
 
