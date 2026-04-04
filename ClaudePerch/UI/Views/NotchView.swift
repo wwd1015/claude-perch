@@ -39,7 +39,7 @@ struct NotchView: View {
     @AppStorage("soundSessionStart") private var soundSessionStart = true
     @AppStorage("soundTaskComplete") private var soundTaskComplete = true
     @AppStorage("soundApprovalNeeded") private var soundApprovalNeeded = true
-    @AppStorage("showUsage") private var showUsageSetting = false
+    @AppStorage("showUsage") private var showUsageSetting = true
 
     @Namespace private var activityNamespace
 
