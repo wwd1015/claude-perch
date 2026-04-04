@@ -512,14 +512,10 @@ struct NotchView: View {
                 }
             }
 
-            // Pop the notch open for permission requests
-            // Smart suppression: don't expand if terminal is focused
+            // ALWAYS pop the notch open for permission requests (they need user action)
+            // Smart suppression does NOT apply to permissions - they're urgent
             if viewModel.status == .closed {
-                if smartSuppression && TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
-                    // Terminal is focused, just bounce instead of expanding
-                } else {
-                    viewModel.notchOpen(reason: .notification)
-                }
+                viewModel.notchOpen(reason: .notification)
             }
         }
 
@@ -602,36 +598,39 @@ struct NotchView: View {
         let activeSessions = sessionMonitor.instances.filter { $0.phase == .processing || $0.phase == .compacting }.count
 
         HStack(spacing: 4) {
-            // Status indicator
+            // Status indicator (like Vibe Island: orange when active, green when idle)
             Circle()
                 .fill(activeSessions > 0 ? Color.orange : TerminalColors.green)
                 .frame(width: 8, height: 8)
 
-            // Session time (from oldest session)
+            // Session time
             if let oldest = sessionMonitor.instances.min(by: { $0.createdAt < $1.createdAt }) {
                 let elapsed = Date().timeIntervalSince(oldest.createdAt)
                 let hours = Int(elapsed / 3600)
                 let minutes = Int(elapsed.truncatingRemainder(dividingBy: 3600) / 60)
-                if hours > 0 {
-                    Text("\(hours)h")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white.opacity(0.7))
-                    Text("\(minutes)m")
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.4))
-                } else {
-                    Text("\(minutes)m")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white.opacity(0.7))
-                }
+                Text("\(hours)h")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white.opacity(0.7))
+
+                // Context usage % (estimate from conversation size)
+                // Claude's context window is ~200K tokens. Use chat item count as proxy.
+                let totalItems = sessionMonitor.instances.reduce(0) { $0 + $1.chatItems.count }
+                let contextPercent = min(100, totalItems * 100 / max(1, 500)) // rough estimate
+                Text("\(contextPercent)%")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(contextPercent > 80 ? Color.red : contextPercent > 50 ? Color.orange : TerminalColors.green)
+
+                Text("\(hours)h\(String(format: "%02d", minutes))m")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.4))
             }
 
             Text("|")
                 .font(.system(size: 10))
                 .foregroundColor(.white.opacity(0.2))
 
-            // Active/total sessions
-            Text("\(activeSessions)/\(totalSessions) active")
+            // Total sessions info
+            Text("\(totalSessions) session\(totalSessions == 1 ? "" : "s")")
                 .font(.system(size: 10))
                 .foregroundColor(.white.opacity(0.4))
 

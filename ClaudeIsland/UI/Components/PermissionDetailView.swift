@@ -313,43 +313,37 @@ struct PermissionDetailView: View {
         }
     }
 
-    // MARK: - Approval Buttons (dynamic based on tool type like Vibe Island)
+    // MARK: - Approval Buttons (matches terminal's Yes/No options)
 
     private var approvalButtons: some View {
-        HStack(spacing: 6) {
-            // Deny (always shown)
-            approvalButton(label: "Deny", color: Color.white.opacity(0.1), textColor: .white.opacity(0.7)) {
+        HStack(spacing: 8) {
+            // Deny
+            Button {
                 onDeny()
+            } label: {
+                Text("Deny")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
+            .buttonStyle(.plain)
 
-            // Allow Once (always shown)
-            approvalButton(label: "Allow Once", color: Color.white.opacity(0.1), textColor: .white.opacity(0.7)) {
+            // Allow
+            Button {
                 onApprove()
+            } label: {
+                Text("Allow")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.9))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-
-            // Always Allow (shown for tools that support it: Bash, Edit, Write)
-            if showsAlwaysAllow {
-                approvalButton(label: "Always Allow", color: Color(red: 0.3, green: 0.5, blue: 0.8), textColor: .white) {
-                    onApprove()
-                }
-            }
-
-            // Bypass (shown only for Bash - dangerous operations)
-            if context.toolName == "Bash" {
-                approvalButton(label: "Bypass", color: Color(red: 0.7, green: 0.35, blue: 0.3), textColor: .white) {
-                    onApprove()
-                }
-            }
-        }
-    }
-
-    /// Whether to show "Always Allow" based on tool type
-    private var showsAlwaysAllow: Bool {
-        switch context.toolName {
-        case "Bash", "Edit", "Write", "Glob", "Grep", "Read":
-            return true
-        default:
-            return false
+            .buttonStyle(.plain)
         }
     }
 
