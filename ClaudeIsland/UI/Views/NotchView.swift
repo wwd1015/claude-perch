@@ -37,6 +37,7 @@ struct NotchView: View {
     @AppStorage("soundSessionStart") private var soundSessionStart = true
     @AppStorage("soundTaskComplete") private var soundTaskComplete = true
     @AppStorage("soundApprovalNeeded") private var soundApprovalNeeded = true
+    @AppStorage("showUsage") private var showUsageSetting = false
 
     @Namespace private var activityNamespace
 
@@ -243,8 +244,8 @@ struct NotchView: View {
                     .frame(height: max(24, closedNotchSize.height))
             }
 
-            // Usage stats bar (like Vibe Island: "5h 35% 3h49m | 7d 7% 6d")
-            if viewModel.status == .opened && !sessionMonitor.instances.isEmpty {
+            // Usage stats bar (controlled by "Show Usage" setting)
+            if viewModel.status == .opened && !sessionMonitor.instances.isEmpty && showUsageSetting {
                 usageStatsBar
                     .padding(.horizontal, 8)
                     .padding(.bottom, 4)

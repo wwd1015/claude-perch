@@ -164,10 +164,7 @@ struct DisplaySettingsView: View {
     var body: some View {
         Form {
             Section("Screen") {
-                Picker("Display", selection: .constant("Automatic")) {
-                    Text("Automatic").tag("Automatic")
-                    Text("Built-in Display").tag("Built-in")
-                }
+                ScreenPickerRow(screenSelector: screenSelector)
             }
 
             Section("Notch Panel") {
@@ -178,9 +175,12 @@ struct DisplaySettingsView: View {
             }
 
             Section("Session Cards") {
-                Toggle("Show terminal badge", isOn: .constant(true))
-                Toggle("Show time active", isOn: .constant(true))
-                Toggle("Show agent badge", isOn: .constant(true))
+                @AppStorage("showTerminalBadge") var showTerminalBadge = true
+                @AppStorage("showTimeActive") var showTimeActive = true
+                @AppStorage("showAgentBadge") var showAgentBadge = true
+                Toggle("Show terminal badge", isOn: $showTerminalBadge)
+                Toggle("Show time active", isOn: $showTimeActive)
+                Toggle("Show agent badge", isOn: $showAgentBadge)
             }
         }
         .formStyle(.grouped)

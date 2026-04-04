@@ -153,6 +153,13 @@ struct InstanceRow: View {
     @State private var spinnerPhase = 0
     @State private var showDetail = false
 
+    // Display settings
+    @AppStorage("showActivityLog") private var showActivityLog = true
+    @AppStorage("showConversation") private var showConversation = true
+    @AppStorage("showTerminalBadge") private var showTerminalBadge = true
+    @AppStorage("showTimeActive") private var showTimeActive = true
+    @AppStorage("showAgentBadge") private var showAgentBadge = true
+
     private let claudeOrange = Color(red: 0.85, green: 0.47, blue: 0.34)
     private let spinnerSymbols = ["·", "✢", "✳", "∗", "✻", "✽"]
     private let spinnerTimer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
@@ -223,34 +230,35 @@ struct InstanceRow: View {
 
                 Spacer(minLength: 0)
 
-                // Right side badges: Claude, cmux, time, jump
+                // Right side badges (respects display settings)
                 HStack(spacing: 6) {
-                    // Agent badge
-                    Text("Claude")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                    if showAgentBadge {
+                        Text("Claude")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
 
-                    // Terminal badge
-                    Text(terminalName.lowercased())
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                    if showTerminalBadge {
+                        Text(terminalName.lowercased())
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
 
-                    // Time badge
-                    if let time = timeActive {
+                    if showTimeActive, let time = timeActive {
                         Text(time)
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.white.opacity(0.4))
                     }
 
-                    // Jump shortcut (like Vibe Island's ^G ↗)
+                    // Jump shortcut (always shown)
                     Button { onFocus() } label: {
                         Text("^G ↗")
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -280,11 +288,15 @@ struct InstanceRow: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Expanded view: conversation + activity (tap to toggle)
+            // Expanded view: conversation + activity (tap to toggle, respects settings)
             if showDetail && !isWaitingForApproval && !session.chatItems.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    ConversationPreview(session: session)
-                    ActivityLogView(session: session)
+                    if showConversation {
+                        ConversationPreview(session: session)
+                    }
+                    if showActivityLog {
+                        ActivityLogView(session: session)
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
