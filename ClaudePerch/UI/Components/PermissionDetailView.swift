@@ -229,73 +229,13 @@ struct PermissionDetailView: View {
         }
     }
 
-    // MARK: - AskUserQuestion (Vibe Island: "Claude's Question" + option cards)
+    // MARK: - AskUserQuestion (shows ALL questions at once with Submit All)
 
     private var askUserQuestionView: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Header: orange heart + "Claude's Question"
-            HStack(spacing: 6) {
-                Text("🧡")
-                    .font(.system(size: 12))
-                Text("Claude's Question")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(TerminalColors.amber)
-            }
-
-            // Question text
-            if let question = extractQuestionText() {
-                Text(question)
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.9))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // Option buttons with label + description (like Vibe Island)
-            let options = extractQuestionOptionsWithDescriptions()
-            if !options.isEmpty {
-                VStack(spacing: 5) {
-                    ForEach(Array(options.enumerated()), id: \.offset) { index, option in
-                        Button {
-                            onAnswer?(option.label)
-                        } label: {
-                            HStack(spacing: 10) {
-                                // Number badge
-                                Text("\(index + 1)")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .frame(width: 24, height: 24)
-                                    .background(Color.white.opacity(0.15))
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                                // Label + description
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(option.label)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(.white)
-                                    if let desc = option.description {
-                                        Text(desc)
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.white.opacity(0.5))
-                                    }
-                                }
-
-                                Spacer()
-
-                                // Shortcut
-                                Text("^\(index + 1)")
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundColor(.white.opacity(0.3))
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color(red: 0.12, green: 0.25, blue: 0.28))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
+        AskUserQuestionMultiView(
+            context: context,
+            onAnswer: onAnswer
+        )
     }
 
     // MARK: - Generic Preview
@@ -437,5 +377,171 @@ struct PermissionDetailView: View {
             }
         }
         return []
+    }
+}
+
+// MARK: - Multi-Question AskUserQuestion View
+
+/// Shows ALL questions at once with selectable option chips and a "Submit All Answers" button
+struct AskUserQuestionMultiView: View {
+    let context: PermissionContext
+    let onAnswer: ((String) -> Void)?
+
+    @State private var selectedAnswers: [Int: String] = [:]
+
+    private var allQuestions: [(question: String, options: [(label: String, description: String?)])] {
+        guard let input = context.toolInput,
+              let questions = input["questions"]?.value as? [[String: Any]] else { return [] }
+        return questions.compactMap { q in
+            guard let question = q["question"] as? String else { return nil }
+            let options: [(label: String, description: String?)]
+            if let opts = q["options"] as? [[String: Any]] {
+                options = opts.compactMap { opt in
+                    guard let label = opt["label"] as? String else { return nil }
+                    return (label: label, description: opt["description"] as? String)
+                }
+            } else {
+                options = []
+            }
+            return (question: question, options: options)
+        }
+    }
+
+    private var allAnswered: Bool {
+        let questions = allQuestions
+        guard !questions.isEmpty else { return false }
+        return questions.indices.allSatisfy { selectedAnswers[$0] != nil }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
+            HStack(spacing: 6) {
+                Text("🧡")
+                    .font(.system(size: 12))
+                Text("Claude's Question")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(TerminalColors.amber)
+                if allQuestions.count > 1 {
+                    Text("(\(allQuestions.count) questions)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+            }
+
+            // All questions
+            let questions = allQuestions
+            ForEach(Array(questions.enumerated()), id: \.offset) { qIndex, q in
+                VStack(alignment: .leading, spacing: 6) {
+                    // Question number + text
+                    HStack(alignment: .top, spacing: 6) {
+                        if questions.count > 1 {
+                            Text("\(qIndex + 1).")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white.opacity(0.6))
+                        }
+                        Text(q.question)
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.9))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    // Option chips (selectable)
+                    FlowLayout(spacing: 5) {
+                        ForEach(Array(q.options.enumerated()), id: \.offset) { oIndex, option in
+                            Button {
+                                selectedAnswers[qIndex] = option.label
+                            } label: {
+                                Text(option.label)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(selectedAnswers[qIndex] == option.label ? .white : .white.opacity(0.7))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        selectedAnswers[qIndex] == option.label
+                                            ? Color(red: 0.2, green: 0.5, blue: 0.4)
+                                            : Color.white.opacity(0.1)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+
+            // Warning if not all answered
+            if !allAnswered && !questions.isEmpty {
+                HStack(spacing: 4) {
+                    Text("⚠")
+                        .font(.system(size: 10))
+                    Text("Please answer all questions")
+                        .font(.system(size: 11))
+                        .foregroundColor(TerminalColors.amber.opacity(0.7))
+                }
+            }
+
+            // Submit All Answers button
+            Button {
+                // Serialize answers as JSON array
+                let answers = (0..<allQuestions.count).map { selectedAnswers[$0] ?? "" }
+                if let data = try? JSONSerialization.data(withJSONObject: answers),
+                   let json = String(data: data, encoding: .utf8) {
+                    onAnswer?(json)
+                }
+            } label: {
+                Text("Submit All Answers")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(allAnswered ? .white : .white.opacity(0.4))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(allAnswered ? Color(red: 0.2, green: 0.6, blue: 0.3) : Color.white.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .disabled(!allAnswered)
+        }
+    }
+}
+
+// MARK: - Flow Layout (wrapping horizontal layout for option chips)
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 5
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
+        }
+    }
+
+    private func arrangeSubviews(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var maxX: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth && x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            positions.append(CGPoint(x: x, y: y))
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+            maxX = max(maxX, x)
+        }
+
+        return (CGSize(width: maxX, height: y + rowHeight), positions)
     }
 }

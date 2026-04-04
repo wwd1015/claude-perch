@@ -732,7 +732,15 @@ struct NotchView: View {
             if let session = monitor.instances.first(where: {
                 $0.phase.isWaitingForApproval && $0.pendingToolName == "AskUserQuestion"
             }) {
-                monitor.approvePermission(sessionId: session.sessionId)
+                // Extract the option label at the given index
+                if let input = session.activePermission?.toolInput,
+                   let questions = input["questions"]?.value as? [[String: Any]],
+                   let first = questions.first,
+                   let options = first["options"] as? [[String: Any]],
+                   index < options.count,
+                   let label = options[index]["label"] as? String {
+                    monitor.answerQuestion(sessionId: session.sessionId, selectedOption: label)
+                }
             }
         }
 

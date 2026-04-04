@@ -30,9 +30,18 @@ class ClaudeSessionMonitor: ObservableObject {
 
     // MARK: - Monitoring Lifecycle
 
+    private var staleCleanupTimer: Timer?
+
     func startMonitoring() {
         // Discover existing sessions on launch (like Vibe Island)
         discoverExistingSessions()
+
+        // Periodically clean up stale sessions (every 60s)
+        staleCleanupTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.cleanupStaleSessions()
+            }
+        }
 
         HookSocketServer.shared.start(
             onEvent: { event in
@@ -123,6 +132,26 @@ class ClaudeSessionMonitor: ObservableObject {
         }
     }
 
+    /// Answer an AskUserQuestion with the selected option text
+    func answerQuestion(sessionId: String, selectedOption: String) {
+        Task {
+            guard let session = await SessionStore.shared.session(for: sessionId),
+                  let permission = session.activePermission else {
+                return
+            }
+
+            HookSocketServer.shared.respondToPermission(
+                toolUseId: permission.toolUseId,
+                decision: "answer",
+                reason: selectedOption
+            )
+
+            await SessionStore.shared.process(
+                .permissionApproved(sessionId: sessionId, toolUseId: permission.toolUseId)
+            )
+        }
+    }
+
     func denyPermission(sessionId: String, reason: String?) {
         Task {
             guard let session = await SessionStore.shared.session(for: sessionId),
@@ -146,6 +175,22 @@ class ClaudeSessionMonitor: ObservableObject {
     func archiveSession(sessionId: String) {
         Task {
             await SessionStore.shared.process(.sessionEnded(sessionId: sessionId))
+        }
+    }
+
+    // MARK: - Stale Session Cleanup
+
+    /// Remove sessions whose processes have died and have been inactive
+    private func cleanupStaleSessions() {
+        for session in instances {
+            guard let pid = session.pid else { continue }
+            // Check if process is still alive (kill with signal 0 just checks existence)
+            if kill(pid_t(pid), 0) != 0 {
+                let staleDuration = Date().timeIntervalSince(session.lastActivity)
+                if staleDuration > 120 { // 2 minutes inactive + dead process
+                    archiveSession(sessionId: session.sessionId)
+                }
+            }
         }
     }
 

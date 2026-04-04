@@ -96,6 +96,7 @@ struct ClaudeInstancesView: View {
                             onArchive: { archiveSession(session) },
                             onApprove: { approveSession(session) },
                             onReject: { rejectSession(session) },
+                            onAnswer: { answer in answerQuestion(session, answer: answer) },
                             onApproveAlways: { approveAlwaysSession(session) }
                         )
                         .id(session.stableId)
@@ -124,6 +125,10 @@ struct ClaudeInstancesView: View {
 
     private func openChat(_ session: SessionState) {
         viewModel.showChat(for: session)
+    }
+
+    private func answerQuestion(_ session: SessionState, answer: String) {
+        sessionMonitor.answerQuestion(sessionId: session.sessionId, selectedOption: answer)
     }
 
     private func approveSession(_ session: SessionState) {
@@ -229,9 +234,7 @@ struct InstanceRow: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        showDetail.toggle()
-                    }
+                    onFocus()
                 }
 
                 Spacer(minLength: 0)
@@ -275,6 +278,20 @@ struct InstanceRow: View {
                             .clipShape(RoundedRectangle(cornerRadius: 4))
                     }
                     .buttonStyle(.plain)
+
+                    // Archive/dismiss button (visible on hover)
+                    if isHovered {
+                        Button { onArchive() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.white.opacity(0.4))
+                                .frame(width: 20, height: 20)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.opacity)
+                    }
                 }
             }
             .padding(.leading, 8)

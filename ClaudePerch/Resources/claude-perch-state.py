@@ -180,6 +180,20 @@ def main():
                 print(json.dumps(output))
                 sys.exit(0)
 
+            elif decision == "answer":
+                # User selected an option for AskUserQuestion
+                output = {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PermissionRequest",
+                        "decision": {
+                            "behavior": "allow",
+                            "answer": reason,
+                        },
+                    }
+                }
+                print(json.dumps(output))
+                sys.exit(0)
+
             elif decision == "deny":
                 # Output JSON to deny
                 output = {
