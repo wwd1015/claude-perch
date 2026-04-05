@@ -267,55 +267,27 @@ struct PermissionDetailView: View {
 
     private var approvalButtons: some View {
         HStack(spacing: 6) {
-            // Deny
-            Button { onDeny() } label: {
-                Text("Deny")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
+            HotkeyButton(label: "Deny", hotkey: "^N",
+                         color: Color.white.opacity(0.08),
+                         textColor: .white.opacity(0.7),
+                         action: onDeny)
 
-            // Allow (one-time)
-            Button { onApprove() } label: {
-                Text("Allow")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color(red: 0.3, green: 0.5, blue: 0.8))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
+            HotkeyButton(label: "Allow", hotkey: "^Y",
+                         color: Color(red: 0.3, green: 0.5, blue: 0.8),
+                         textColor: .white, fontWeight: .semibold,
+                         action: onApprove)
 
-            // Always Allow (only for tools that support it)
             if supportsAlwaysAllow {
-                Button { onAlwaysAllowAction() } label: {
-                    Text("Always Allow")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.8))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color(red: 0.2, green: 0.45, blue: 0.3))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
+                HotkeyButton(label: "Always Allow", hotkey: "^A",
+                             color: Color(red: 0.2, green: 0.45, blue: 0.3),
+                             textColor: .white.opacity(0.8),
+                             action: onAlwaysAllowAction)
             }
 
-            // Bypass (let terminal handle it)
-            Button { onDeny() } label: {
-                Text("Bypass")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color(red: 0.5, green: 0.25, blue: 0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
+            HotkeyButton(label: "Bypass", hotkey: "Esc",
+                         color: Color(red: 0.5, green: 0.25, blue: 0.2),
+                         textColor: .white.opacity(0.7),
+                         action: onDeny)
         }
     }
 
@@ -551,5 +523,42 @@ struct FlowLayout: Layout {
         }
 
         return (CGSize(width: maxX, height: y + rowHeight), positions)
+    }
+}
+
+// MARK: - Hotkey Button (shows hotkey hint on hover)
+
+struct HotkeyButton: View {
+    let label: String
+    let hotkey: String
+    let color: Color
+    let textColor: Color
+    var fontWeight: Font.Weight = .medium
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button { action() } label: {
+            VStack(spacing: 2) {
+                Text(label)
+                    .font(.system(size: 12, weight: fontWeight))
+                    .foregroundColor(textColor)
+
+                // Hotkey hint (only visible on hover)
+                Text(hotkey)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.35))
+                    .opacity(isHovered ? 1 : 0)
+                    .frame(height: isHovered ? nil : 0)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, isHovered ? 6 : 10)
+            .background(isHovered ? color.opacity(1.2) : color)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .animation(.easeInOut(duration: 0.15), value: isHovered)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
