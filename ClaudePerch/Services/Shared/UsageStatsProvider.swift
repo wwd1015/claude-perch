@@ -123,19 +123,27 @@ class UsageStatsProvider: ObservableObject {
         let serviceNames = ["Claude Code-credentials"]
 
         for serviceName in serviceNames {
-            if let token = readKeychainPassword(service: serviceName) {
-                // Parse JSON to extract accessToken
-                if let data = token.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let accessToken = json["accessToken"] as? String {
-                    // Check expiry
-                    if let expiresAt = json["expiresAt"] as? Double {
-                        if Date(timeIntervalSince1970: expiresAt / 1000) < Date() {
-                            continue // Token expired
-                        }
-                    }
-                    return accessToken
+            if let raw = readKeychainPassword(service: serviceName) {
+                guard let data = raw.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+
+                // Token may be at top level or nested under "claudeAiOauth"
+                let creds: [String: Any]
+                if let nested = json["claudeAiOauth"] as? [String: Any] {
+                    creds = nested
+                } else {
+                    creds = json
                 }
+
+                guard let accessToken = creds["accessToken"] as? String else { continue }
+
+                // Check expiry (expiresAt is in milliseconds)
+                if let expiresAt = creds["expiresAt"] as? Double {
+                    if Date(timeIntervalSince1970: expiresAt / 1000) < Date() {
+                        continue // Token expired
+                    }
+                }
+                return accessToken
             }
         }
         return nil
