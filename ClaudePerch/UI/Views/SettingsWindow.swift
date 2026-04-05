@@ -435,7 +435,15 @@ class SettingsWindowController {
         )
         window.title = "Claude Perch Settings"
         window.contentViewController = hostingController
-        window.center()
+        // Position below the notch area so the title bar is accessible
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let x = screenFrame.midX - 325
+            let y = screenFrame.midY - 100
+            window.setFrameOrigin(NSPoint(x: x, y: y))
+        } else {
+            window.center()
+        }
         window.makeKeyAndOrderFront(nil)
         window.isReleasedWhenClosed = false
         NSApp.activate(ignoringOtherApps: true)
