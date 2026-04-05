@@ -297,7 +297,9 @@ class ClaudeSessionMonitor: ObservableObject {
 
     private func updateFromSessions(_ sessions: [SessionState]) {
         instances = sessions
-        pendingInstances = sessions.filter { $0.needsAttention }
+        // Only permission requests are "pending" (trigger panel open)
+        // waitingForInput (Done) is NOT pending — it shows in the closed bar
+        pendingInstances = sessions.filter { $0.phase.isWaitingForApproval }
     }
 
     // MARK: - History Loading (for UI)

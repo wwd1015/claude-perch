@@ -583,8 +583,10 @@ struct NotchView: View {
                 }
             }
 
-            // Don't pop open for "Ready" state - just update the closed notch bar
-            // Only permission requests should auto-pop (handled in handlePendingSessionsChange)
+            // Close the panel if open — Done state shows expanded closed bar, not popup
+            if viewModel.status == .opened {
+                viewModel.notchClose()
+            }
 
             // Trigger bounce animation to get user's attention
             DispatchQueue.main.async {
