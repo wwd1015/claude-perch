@@ -98,9 +98,9 @@ struct NotchView: View {
             return 2 * max(0, closedNotchSize.height - 12) + 20 + permissionIndicatorWidth
         }
 
-        // Waiting for input just shows checkmark on right, no extra left indicator
+        // Waiting for input: wider expansion for prominent "Done" display
         if hasWaitingForInput {
-            return 2 * max(0, closedNotchSize.height - 12) + 20
+            return 2 * max(0, closedNotchSize.height - 12) + 80
         }
 
         return 0
@@ -344,6 +344,20 @@ struct NotchView: View {
                 Rectangle()
                     .fill(.clear)
                     .frame(width: closedNotchSize.width - 20)
+            } else if hasWaitingForInput && !isProcessing && !hasPendingPermission {
+                // Closed with Done state: show prominent checkmark + "Done" text
+                HStack(spacing: 6) {
+                    Rectangle().fill(.black)
+                        .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top)
+
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(TerminalColors.green)
+
+                    Text("Done")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(TerminalColors.green)
+                }
             } else {
                 // Closed with activity: black spacer (with optional bounce)
                 Rectangle()
@@ -351,16 +365,16 @@ struct NotchView: View {
                     .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top + (isBouncing ? 16 : 0))
             }
 
-            // Right side - spinner when processing/pending, checkmark when waiting for input
+            // Right side - spinner when processing/pending
             if showClosedActivity {
                 if isProcessing || hasPendingPermission {
                     ProcessingSpinner()
                         .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
                         .frame(width: viewModel.status == .opened ? 20 : sideWidth)
                 } else if hasWaitingForInput {
-                    // Checkmark for waiting-for-input on the right side
-                    ReadyForInputIndicatorIcon(size: 14, color: TerminalColors.green)
-                        .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
+                    // Small spacer on right for balanced layout
+                    Rectangle()
+                        .fill(.clear)
                         .frame(width: viewModel.status == .opened ? 20 : sideWidth)
                 }
             }
