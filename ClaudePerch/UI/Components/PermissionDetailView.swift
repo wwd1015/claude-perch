@@ -258,11 +258,23 @@ struct PermissionDetailView: View {
     // MARK: - Approval Buttons (Deny / Allow / Always Allow / Bypass - matches terminal)
 
     /// Whether this tool supports "Always Allow" (matches Claude Code terminal behavior)
-    /// Most tools support it — Bash shows "Yes, and don't ask again for similar commands"
+    /// For Bash: only show when the command is simple enough to create a pattern rule
+    /// (Claude Code shows "don't ask again" for simple commands, not chained/piped ones)
     private var supportsAlwaysAllow: Bool {
         let tool = context.toolName
-        return ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit"].contains(tool)
-            || tool.hasPrefix("mcp__") // MCP tools
+
+        if tool == "Bash" {
+            // Check if command is simple enough for a pattern rule
+            guard let command = extractString("command") else { return false }
+            let chainChars: [Character] = ["|", ";"]
+            let chainStrings = ["&&", "||", "$(", "`"]
+            if command.contains(where: { chainChars.contains($0) }) { return false }
+            if chainStrings.contains(where: { command.contains($0) }) { return false }
+            return true
+        }
+
+        return ["Edit", "Write", "MultiEdit", "NotebookEdit"].contains(tool)
+            || tool.hasPrefix("mcp__")
     }
 
     private var approvalButtons: some View {
