@@ -468,6 +468,11 @@ struct NotchView: View {
             // Keep visible for waiting-for-input but hide the processing spinner
             activityCoordinator.hideActivity()
             isVisible = true
+
+            // Auto-close the panel for Done state — show expanded closed bar instead
+            if viewModel.status == .opened {
+                viewModel.notchClose()
+            }
         } else {
             // Hide activity when done
             activityCoordinator.hideActivity()
