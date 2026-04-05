@@ -87,19 +87,27 @@ class UsageStatsProvider: ObservableObject {
                 return
             }
 
-            // Parse response
+            // Parse response — field is "utilization" (not "used_percentage")
+            // and "resets_at" is an ISO 8601 string (not Unix timestamp)
             let fiveHour = json["five_hour"] as? [String: Any]
             let sevenDay = json["seven_day"] as? [String: Any]
 
-            let fiveHourPct = fiveHour?["used_percentage"] as? Double ?? 0
-            let sevenDayPct = sevenDay?["used_percentage"] as? Double ?? 0
+            let fiveHourPct = fiveHour?["utilization"] as? Double ?? 0
+            let sevenDayPct = sevenDay?["utilization"] as? Double ?? 0
+
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
             let fiveHourReset: Date? = {
-                if let ts = fiveHour?["resets_at"] as? Double { return Date(timeIntervalSince1970: ts) }
+                if let str = fiveHour?["resets_at"] as? String {
+                    return isoFormatter.date(from: str) ?? ISO8601DateFormatter().date(from: str)
+                }
                 return nil
             }()
             let sevenDayReset: Date? = {
-                if let ts = sevenDay?["resets_at"] as? Double { return Date(timeIntervalSince1970: ts) }
+                if let str = sevenDay?["resets_at"] as? String {
+                    return isoFormatter.date(from: str) ?? ISO8601DateFormatter().date(from: str)
+                }
                 return nil
             }()
 
