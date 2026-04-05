@@ -185,22 +185,14 @@ class ClaudeSessionMonitor: ObservableObject {
 
     // MARK: - Stale Session Cleanup
 
-    /// Remove sessions whose processes have died or have been inactive too long
+    /// Remove sessions only when their Claude process has died
+    /// (user quit Claude in that terminal window)
     private func cleanupStaleSessions() {
         for session in instances {
-            if let pid = session.pid {
-                // Check if process is still alive (kill with signal 0 just checks existence)
-                if kill(pid_t(pid), 0) != 0 {
-                    // Process is dead — remove immediately
-                    archiveSession(sessionId: session.sessionId)
-                }
-            } else {
-                // No PID (discovered on launch, never received a hook event)
-                // Remove if no hook event received within 30 seconds
-                let staleDuration = Date().timeIntervalSince(session.lastActivity)
-                if staleDuration > 30 {
-                    archiveSession(sessionId: session.sessionId)
-                }
+            guard let pid = session.pid else { continue }
+            // Check if process is still alive (kill with signal 0 just checks existence)
+            if kill(pid_t(pid), 0) != 0 {
+                archiveSession(sessionId: session.sessionId)
             }
         }
     }
