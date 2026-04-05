@@ -258,56 +258,42 @@ struct PermissionDetailView: View {
     // MARK: - Approval Buttons (Deny / Allow / Always Allow / Bypass - matches terminal)
 
     private var approvalButtons: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 6) {
-                // Deny
-                Button { onDeny() } label: {
-                    Text("Deny")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.7))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-
-                // Allow (one-time)
-                Button { onApprove() } label: {
-                    Text("Allow")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.8))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-
-                // Always Allow
-                Button { onAlwaysAllowAction() } label: {
-                    Text("Always Allow")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color(red: 0.3, green: 0.5, blue: 0.8))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-
-                // Bypass (Esc in terminal - dismiss without answering)
-                Button { onDeny() } label: {
-                    Text("Bypass")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.7))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color(red: 0.5, green: 0.25, blue: 0.2))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
+        HStack(spacing: 6) {
+            // Deny
+            Button { onDeny() } label: {
+                Text("Deny")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
+            .buttonStyle(.plain)
+
+            // Allow (one-time)
+            Button { onApprove() } label: {
+                Text("Allow")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color(red: 0.3, green: 0.5, blue: 0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+
+            // Bypass (let terminal handle it)
+            Button { onDeny() } label: {
+                Text("Bypass")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color(red: 0.5, green: 0.25, blue: 0.2))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
         }
     }
 
