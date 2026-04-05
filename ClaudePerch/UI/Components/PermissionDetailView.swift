@@ -257,6 +257,14 @@ struct PermissionDetailView: View {
 
     // MARK: - Approval Buttons (Deny / Allow / Always Allow / Bypass - matches terminal)
 
+    /// Whether this tool supports "Always Allow" (matches Claude Code terminal behavior)
+    private var supportsAlwaysAllow: Bool {
+        let tool = context.toolName
+        // Claude Code shows "Always Allow" for tools that can have permission rules
+        return ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit"].contains(tool)
+            || tool.hasPrefix("mcp__") // MCP tools
+    }
+
     private var approvalButtons: some View {
         HStack(spacing: 6) {
             // Deny
@@ -282,6 +290,20 @@ struct PermissionDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+
+            // Always Allow (only for tools that support it)
+            if supportsAlwaysAllow {
+                Button { onAlwaysAllowAction() } label: {
+                    Text("Always Allow")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.8))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color(red: 0.2, green: 0.45, blue: 0.3))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+            }
 
             // Bypass (let terminal handle it)
             Button { onDeny() } label: {
