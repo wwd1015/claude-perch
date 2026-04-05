@@ -587,15 +587,17 @@ struct NotchView: View {
 
     // MARK: - Usage Stats Bar (like Vibe Island top bar)
 
-    /// Format remaining time until reset
+    /// Format remaining time until reset as "Xh XXm"
     private func formatResetTime(_ date: Date) -> String {
         let remaining = date.timeIntervalSinceNow
-        if remaining <= 0 { return "" }
-        let days = Int(remaining / 86400)
-        let hours = Int(remaining / 3600)
-        if days > 0 { return "\(days)d" }
-        if hours > 0 { return "\(hours)h" }
-        return "<1h"
+        if remaining <= 0 { return "now" }
+        let totalMinutes = Int(remaining / 60)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if hours > 0 {
+            return "\(hours)h \(String(format: "%02d", minutes))m"
+        }
+        return "\(minutes)m"
     }
 
     @ViewBuilder
@@ -604,12 +606,12 @@ struct NotchView: View {
         let activeSessions = sessionMonitor.instances.filter { $0.phase == .processing || $0.phase == .compacting }.count
 
         HStack(spacing: 4) {
-            // Status indicator (like Vibe Island: orange when active, green when idle)
+            // Status indicator
             Circle()
                 .fill(activeSessions > 0 ? Color.orange : TerminalColors.green)
                 .frame(width: 8, height: 8)
 
-            // API usage stats: "5h 0% | 7d 12% 5d" (like Vibe Island)
+            // Format: "5h X% | resets in Xh XXm"
             if let usage = usageProvider.stats {
                 Text("5h")
                     .font(.system(size: 10, weight: .bold))
@@ -622,20 +624,16 @@ struct NotchView: View {
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.2))
 
-                Text("7d")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.white.opacity(0.7))
-                Text("\(Int(usage.sevenDayPercent))%")
-                    .font(.system(size: 10))
-                    .foregroundColor(usage.sevenDayPercent > 80 ? Color.red.opacity(0.9) : .white.opacity(0.4))
-
-                if let reset = usage.sevenDayResetsAt {
-                    let resetStr = formatResetTime(reset)
-                    if !resetStr.isEmpty {
-                        Text(resetStr)
-                            .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.3))
-                    }
+                // Show reset time for whichever window is more constrained
+                let resetDate = usage.fiveHourPercent >= usage.sevenDayPercent
+                    ? usage.fiveHourResetsAt : usage.sevenDayResetsAt
+                if let reset = resetDate {
+                    Text("resets in")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.3))
+                    Text(formatResetTime(reset))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
                 }
             } else {
                 // Fallback: show session time when no usage data
