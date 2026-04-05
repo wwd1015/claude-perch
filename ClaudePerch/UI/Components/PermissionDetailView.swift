@@ -258,10 +258,10 @@ struct PermissionDetailView: View {
     // MARK: - Approval Buttons (Deny / Allow / Always Allow / Bypass - matches terminal)
 
     /// Whether this tool supports "Always Allow" (matches Claude Code terminal behavior)
+    /// Bash only shows Yes/No in terminal — no "Always Allow" option
     private var supportsAlwaysAllow: Bool {
         let tool = context.toolName
-        // Claude Code shows "Always Allow" for tools that can have permission rules
-        return ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit"].contains(tool)
+        return ["Edit", "Write", "MultiEdit", "NotebookEdit"].contains(tool)
             || tool.hasPrefix("mcp__") // MCP tools
     }
 

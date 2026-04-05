@@ -624,8 +624,8 @@ struct NotchView: View {
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.2))
 
-                // Show reset time based on 7d window
-                if let reset = usage.sevenDayResetsAt {
+                // Show reset time based on 5h window
+                if let reset = usage.fiveHourResetsAt {
                     Text("resets in")
                         .font(.system(size: 10))
                         .foregroundColor(.white.opacity(0.3))
