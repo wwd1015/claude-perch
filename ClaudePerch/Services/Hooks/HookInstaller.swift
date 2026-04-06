@@ -23,11 +23,11 @@ struct HookInstaller {
     static func verifyAndRepair() {
         let hooksDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/hooks")
-        let pythonScript = hooksDir.appendingPathComponent("claude-perch-state.py")
+        let launcherPath = hooksDir.appendingPathComponent(launcherName)
 
-        // Check if hook script exists and has correct version
-        if FileManager.default.fileExists(atPath: pythonScript.path) {
-            if let content = try? String(contentsOf: pythonScript, encoding: .utf8) {
+        // Check if launcher exists and has correct version
+        if FileManager.default.fileExists(atPath: launcherPath.path) {
+            if let content = try? String(contentsOf: launcherPath, encoding: .utf8) {
                 let expectedMarker = "# HOOK_VERSION=\(hookScriptVersion)"
                 if content.contains(expectedMarker) {
                     // Version matches, verify settings.json hooks are registered
@@ -65,7 +65,7 @@ struct HookInstaller {
                 if let entryHooks = entry["hooks"] as? [[String: Any]] {
                     return entryHooks.contains { h in
                         let cmd = h["command"] as? String ?? ""
-                        return cmd.contains("claude-perch-state.py")
+                        return cmd.contains("claude-perch")
                     }
                 }
                 return false
@@ -79,14 +79,47 @@ struct HookInstaller {
         }
     }
 
-    /// Install hook launcher and update settings.json on app launch.
-    /// Uses a thin launcher script (like Vibe Island) that finds and executes
-    /// the real bridge binary bundled inside the app. This keeps ~/.claude/hooks/ clean.
+    /// Path to the launcher script installed in ~/.claude/hooks/
+    private static let launcherName = "claude-perch-state.py"
+
+    /// The thin launcher script (like Vibe Island's approach).
+    /// Instead of copying 275 lines of Python logic, this tiny script just finds
+    /// and executes the real script bundled inside the app.
+    private static func launcherScript() -> String {
+        let appPath = Bundle.main.bundlePath
+        return """
+        #!/bin/bash
+        # HOOK_VERSION=\(hookScriptVersion)
+        # Claude Perch hook launcher (auto-generated, do not edit)
+        # The real hook script lives inside the app bundle.
+        H="/Contents/Resources/claude-perch-state.py"
+        PYTHON="$(command -v python3 2>/dev/null || echo python)"
+
+        # Try known app locations
+        for P in "\(appPath)" "/Applications/Claude Perch.app" "$HOME/Applications/Claude Perch.app"; do
+          S="${P}${H}"
+          [ -f "$S" ] && exec "$PYTHON" "$S" "$@"
+        done
+
+        # Fallback: search via mdfind
+        P="$(/usr/bin/mdfind 'kMDItemCFBundleIdentifier == "com.claudeperch.app"' 2>/dev/null | /usr/bin/head -1)"
+        S="${P}${H}"
+        [ -f "$S" ] && exec "$PYTHON" "$S" "$@"
+
+        # Last resort: legacy direct path (if someone copied the script manually)
+        [ -f "$HOME/.claude/hooks/claude-perch-state-full.py" ] && exec "$PYTHON" "$HOME/.claude/hooks/claude-perch-state-full.py" "$@"
+
+        exit 0
+        """
+    }
+
+    /// Install thin launcher script and update settings.json on app launch.
+    /// The real logic stays inside the app bundle — only a tiny launcher goes to ~/.claude/hooks/.
     static func installIfNeeded() {
         let claudeDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude")
         let hooksDir = claudeDir.appendingPathComponent("hooks")
-        let pythonScript = hooksDir.appendingPathComponent("claude-perch-state.py")
+        let launcherPath = hooksDir.appendingPathComponent(launcherName)
         let settings = claudeDir.appendingPathComponent("settings.json")
 
         try? FileManager.default.createDirectory(
@@ -94,15 +127,13 @@ struct HookInstaller {
             withIntermediateDirectories: true
         )
 
-        // Install the Python hook script (contains forwarding logic to socket)
-        if let bundled = Bundle.main.url(forResource: "claude-perch-state", withExtension: "py") {
-            try? FileManager.default.removeItem(at: pythonScript)
-            try? FileManager.default.copyItem(at: bundled, to: pythonScript)
-            try? FileManager.default.setAttributes(
-                [.posixPermissions: 0o755],
-                ofItemAtPath: pythonScript.path
-            )
-        }
+        // Write the thin launcher script
+        let launcher = launcherScript()
+        try? launcher.write(to: launcherPath, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: launcherPath.path
+        )
 
         updateSettings(at: settings)
     }
@@ -143,8 +174,7 @@ struct HookInstaller {
             json = existing
         }
 
-        let python = detectPython()
-        let command = "\(python) ~/.claude/hooks/claude-perch-state.py"
+        let command = "bash ~/.claude/hooks/\(launcherName)"
         let hookEntry: [[String: Any]] = [["type": "command", "command": command]]
         let hookEntryWithTimeout: [[String: Any]] = [["type": "command", "command": command, "timeout": 86400]]
         let withMatcher: [[String: Any]] = [["matcher": "*", "hooks": hookEntry]]
@@ -176,7 +206,7 @@ struct HookInstaller {
                     if let entryHooks = entry["hooks"] as? [[String: Any]] {
                         return entryHooks.contains { h in
                             let cmd = h["command"] as? String ?? ""
-                            return cmd.contains("claude-perch-state.py")
+                            return cmd.contains("claude-perch")
                         }
                     }
                     return false
@@ -218,7 +248,7 @@ struct HookInstaller {
                     if let entryHooks = entry["hooks"] as? [[String: Any]] {
                         for hook in entryHooks {
                             if let cmd = hook["command"] as? String,
-                               cmd.contains("claude-perch-state.py") {
+                               cmd.contains("claude-perch") {
                                 return true
                             }
                         }
@@ -251,7 +281,7 @@ struct HookInstaller {
                     if let entryHooks = entry["hooks"] as? [[String: Any]] {
                         return entryHooks.contains { hook in
                             let cmd = hook["command"] as? String ?? ""
-                            return cmd.contains("claude-perch-state.py")
+                            return cmd.contains("claude-perch")
                         }
                     }
                     return false
@@ -279,21 +309,5 @@ struct HookInstaller {
         }
     }
 
-    private static func detectPython() -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["python3"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            if process.terminationStatus == 0 {
-                return "python3"
-            }
-        } catch {}
-
-        return "python"
-    }
+    // Python detection is now handled by the launcher script itself
 }
