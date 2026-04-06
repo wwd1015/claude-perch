@@ -2,8 +2,7 @@
 //  SettingsWindow.swift
 //  ClaudePerch
 //
-//  Vibe Island-style settings window with sidebar navigation.
-//  Opened from the gear icon in the notch panel.
+//  Settings window with sidebar navigation.
 //
 
 import SwiftUI
@@ -45,7 +44,7 @@ struct SettingsWindowView: View {
     @State private var selectedTab: SettingsTab = .general
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
             List(SettingsTab.allCases, id: \.self, selection: $selectedTab) { tab in
                 Label {
                     Text(tab.rawValue)
@@ -75,7 +74,8 @@ struct SettingsWindowView: View {
                 AboutSettingsView()
             }
         }
-        .frame(width: 650, height: 450)
+        .navigationSplitViewStyle(.balanced)
+        .frame(width: 650, height: 500)
     }
 }
 
@@ -110,17 +110,30 @@ struct GeneralSettingsView: View {
                     }
                 ))
 
-                Toggle("Hooks Installed", isOn: Binding(
-                    get: { hooksInstalled },
-                    set: { newValue in
-                        if newValue {
+                HStack {
+                    Text("Hooks")
+                    Spacer()
+                    if hooksInstalled {
+                        Label("Installed", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.caption)
+                    } else {
+                        Button("Install") {
                             HookInstaller.installIfNeeded()
-                        } else {
-                            HookInstaller.uninstall()
+                            hooksInstalled = true
                         }
-                        hooksInstalled = newValue
                     }
-                ))
+                }
+
+                HStack {
+                    Text("Display")
+                    Spacer()
+                    Text("Automatic")
+                        .foregroundColor(.secondary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
             }
 
             Section("Behaviour") {
@@ -191,7 +204,6 @@ struct DisplaySettingsView: View {
             Section("Notch Panel") {
                 Toggle("Show activity log", isOn: $showActivityLog)
                 Toggle("Show conversation preview", isOn: $showConversation)
-
                 Stepper("Max status dots: \(maxStatusDots)", value: $maxStatusDots, in: 4...12)
             }
 
@@ -206,6 +218,7 @@ struct DisplaySettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Display")
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -291,7 +304,6 @@ struct SoundEventRow: View {
                     .foregroundColor(.secondary)
             }
             Spacer()
-            // Play preview button
             Button {
                 NSSound(named: "Pop")?.play()
             } label: {
@@ -326,12 +338,12 @@ struct ShortcutsSettingsView: View {
             }
 
             Section("Panel Shortcuts") {
-                ShortcutRow(label: "Approve", shortcut: "⌃ + Y")
-                ShortcutRow(label: "Deny", shortcut: "⌃ + N")
-                ShortcutRow(label: "Always Allow", shortcut: "⌃ + A")
-                ShortcutRow(label: "Bypass Permissions", shortcut: "⌃ + B")
-                ShortcutRow(label: "Jump to Terminal", shortcut: "⌃ + T")
-                ShortcutRow(label: "Select Option", shortcut: "⌃ + 1-9")
+                ShortcutRow(label: "Approve", shortcut: "⌃Y")
+                ShortcutRow(label: "Deny", shortcut: "⌃N")
+                ShortcutRow(label: "Always Allow", shortcut: "⌃A")
+                ShortcutRow(label: "Bypass Permissions", shortcut: "⌃B")
+                ShortcutRow(label: "Jump to Terminal", shortcut: "⌃T")
+                ShortcutRow(label: "Select Option", shortcut: "⌃1-9")
             }
         }
         .formStyle(.grouped)
@@ -355,23 +367,12 @@ struct ShortcutRow: View {
                 }
             }
             Spacer()
-            // Render shortcut keys as individual key caps
-            HStack(spacing: 3) {
-                ForEach(shortcut.components(separatedBy: " + "), id: \.self) { key in
-                    if key == "+" {
-                        Text("+")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text(key)
-                            .font(.system(size: 12, weight: .medium))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.secondary.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 5))
-                    }
-                }
-            }
+            Text(shortcut)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.secondary.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 5))
         }
     }
 }
@@ -401,7 +402,7 @@ struct AboutSettingsView: View {
             }
 
             Section {
-                Link("GitHub Repository", destination: URL(string: "https://github.com/farouqaldori/claude-perch")!)
+                Link("GitHub Repository", destination: URL(string: "https://github.com/wwd1015/claude-perch")!)
 
                 HStack {
                     Text("Accessibility")
@@ -412,11 +413,17 @@ struct AboutSettingsView: View {
                             .font(.caption)
                     } else {
                         Button("Enable") {
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                                NSWorkspace.shared.open(url)
-                            }
+                            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+                            AXIsProcessTrustedWithOptions(options)
                         }
                     }
+                }
+
+                HStack {
+                    Text("Originally based on")
+                    Spacer()
+                    Link("Claude Island by Farouq Aldori", destination: URL(string: "https://github.com/farouqaldori/claude-island")!)
+                        .font(.caption)
                 }
             }
 
@@ -449,7 +456,7 @@ class SettingsWindowController {
         let hostingController = NSHostingController(rootView: settingsView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 650, height: 450),
+            contentRect: NSRect(x: 0, y: 0, width: 650, height: 500),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -460,7 +467,7 @@ class SettingsWindowController {
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             let x = screenFrame.midX - 325
-            let y = screenFrame.midY - 100
+            let y = screenFrame.midY - 150
             window.setFrameOrigin(NSPoint(x: x, y: y))
         } else {
             window.center()
