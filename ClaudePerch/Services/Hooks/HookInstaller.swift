@@ -10,8 +10,6 @@ import Foundation
 
 struct HookInstaller {
 
-    private static let hookScriptVersion = 1
-
     /// Required hook events that must be registered in settings.json
     private static let requiredHookEvents = [
         "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
@@ -19,121 +17,61 @@ struct HookInstaller {
         "PreCompact"
     ]
 
-    /// Verify hooks are up-to-date and repair if stale or missing
-    static func verifyAndRepair() {
-        let hooksDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/hooks")
-        let launcherPath = hooksDir.appendingPathComponent(launcherName)
-
-        // Check if launcher exists and has correct version
-        if FileManager.default.fileExists(atPath: launcherPath.path) {
-            if let content = try? String(contentsOf: launcherPath, encoding: .utf8) {
-                let expectedMarker = "# HOOK_VERSION=\(hookScriptVersion)"
-                if content.contains(expectedMarker) {
-                    // Version matches, verify settings.json hooks are registered
-                    verifySettingsHooks()
-                    return
-                }
-            }
-        }
-
-        // Stale or missing — reinstall
-        installIfNeeded()
+    /// The hook command that points directly to the bundled Python script
+    private static func hookCommand() -> String {
+        let scriptPath = Bundle.main.bundlePath + "/Contents/Resources/claude-perch-state.py"
+        return "python3 \"\(scriptPath)\""
     }
 
-    /// Verify all required hook events are registered in settings.json
-    private static func verifySettingsHooks() {
+    /// Verify hooks are up-to-date and repair if stale or missing
+    static func verifyAndRepair() {
         let settings = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/settings.json")
 
         guard let data = try? Data(contentsOf: settings),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let hooks = json["hooks"] as? [String: Any] else {
-            // No settings or hooks section — reinstall
             installIfNeeded()
             return
         }
 
+        let expectedCommand = hookCommand()
+
+        // Check all required events exist and point to the current app location
         for event in requiredHookEvents {
             guard let entries = hooks[event] as? [[String: Any]] else {
-                // Missing event — reinstall
                 installIfNeeded()
                 return
             }
 
-            let hasOurHook = entries.contains { entry in
+            let hasCorrectHook = entries.contains { entry in
                 if let entryHooks = entry["hooks"] as? [[String: Any]] {
                     return entryHooks.contains { h in
-                        let cmd = h["command"] as? String ?? ""
-                        return cmd.contains("claude-perch")
+                        (h["command"] as? String) == expectedCommand
                     }
                 }
                 return false
             }
 
-            if !hasOurHook {
-                // Our hook missing from this event — reinstall
+            if !hasCorrectHook {
                 installIfNeeded()
                 return
             }
         }
     }
 
-    /// Path to the launcher script installed in ~/.claude/hooks/
-    private static let launcherName = "claude-perch-state.py"
-
-    /// The thin launcher script (like Vibe Island's approach).
-    /// Instead of copying 275 lines of Python logic, this tiny script just finds
-    /// and executes the real script bundled inside the app.
-    private static func launcherScript() -> String {
-        let appPath = Bundle.main.bundlePath
-        return """
-        #!/bin/bash
-        # HOOK_VERSION=\(hookScriptVersion)
-        # Claude Perch hook launcher (auto-generated, do not edit)
-        # The real hook script lives inside the app bundle.
-        H="/Contents/Resources/claude-perch-state.py"
-        PYTHON="$(command -v python3 2>/dev/null || echo python)"
-
-        # Try known app locations
-        for P in "\(appPath)" "/Applications/Claude Perch.app" "$HOME/Applications/Claude Perch.app"; do
-          S="${P}${H}"
-          [ -f "$S" ] && exec "$PYTHON" "$S" "$@"
-        done
-
-        # Fallback: search via mdfind
-        P="$(/usr/bin/mdfind 'kMDItemCFBundleIdentifier == "com.claudeperch.app"' 2>/dev/null | /usr/bin/head -1)"
-        S="${P}${H}"
-        [ -f "$S" ] && exec "$PYTHON" "$S" "$@"
-
-        # Last resort: legacy direct path (if someone copied the script manually)
-        [ -f "$HOME/.claude/hooks/claude-perch-state-full.py" ] && exec "$PYTHON" "$HOME/.claude/hooks/claude-perch-state-full.py" "$@"
-
-        exit 0
-        """
-    }
-
-    /// Install thin launcher script and update settings.json on app launch.
-    /// The real logic stays inside the app bundle — only a tiny launcher goes to ~/.claude/hooks/.
+    /// Install hooks by registering the bundled script directly in settings.json.
+    /// No files are copied — the command points straight to the app bundle.
     static func installIfNeeded() {
-        let claudeDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude")
-        let hooksDir = claudeDir.appendingPathComponent("hooks")
-        let launcherPath = hooksDir.appendingPathComponent(launcherName)
-        let settings = claudeDir.appendingPathComponent("settings.json")
+        let settings = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/settings.json")
 
-        try? FileManager.default.createDirectory(
-            at: hooksDir,
-            withIntermediateDirectories: true
-        )
-
-        // Write the thin launcher script
-        let launcher = launcherScript()
-        try? launcher.write(to: launcherPath, atomically: true, encoding: .utf8)
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: launcherPath.path
-        )
+        // Clean up legacy launcher script if it exists
+        let legacyScript = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/hooks/claude-perch-state.py")
+        if FileManager.default.fileExists(atPath: legacyScript.path) {
+            try? FileManager.default.removeItem(at: legacyScript)
+        }
 
         updateSettings(at: settings)
     }
@@ -143,10 +81,10 @@ struct HookInstaller {
         // 1. Uninstall hooks from settings.json
         uninstall()
 
-        // 2. Remove the hook script
-        let hooksDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/hooks")
-        try? FileManager.default.removeItem(at: hooksDir.appendingPathComponent("claude-perch-state.py"))
+        // 2. Remove legacy hook script if it exists
+        let legacyScript = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/hooks/claude-perch-state.py")
+        try? FileManager.default.removeItem(at: legacyScript)
 
         // 3. Remove the socket
         unlink("/tmp/claude-perch.sock")
@@ -174,7 +112,7 @@ struct HookInstaller {
             json = existing
         }
 
-        let command = "bash ~/.claude/hooks/\(launcherName)"
+        let command = hookCommand()
         let hookEntry: [[String: Any]] = [["type": "command", "command": command]]
         let hookEntryWithTimeout: [[String: Any]] = [["type": "command", "command": command, "timeout": 86400]]
         let withMatcher: [[String: Any]] = [["matcher": "*", "hooks": hookEntry]]
@@ -200,21 +138,33 @@ struct HookInstaller {
             ("PreCompact", preCompactConfig),
         ]
 
+        let expectedCommand = hookCommand()
+
         for (event, config) in hookEvents {
             if var existingEvent = hooks[event] as? [[String: Any]] {
-                let hasOurHook = existingEvent.contains { entry in
+                // Remove any stale claude-perch entries (old launcher or wrong app path)
+                existingEvent.removeAll { entry in
                     if let entryHooks = entry["hooks"] as? [[String: Any]] {
                         return entryHooks.contains { h in
                             let cmd = h["command"] as? String ?? ""
-                            return cmd.contains("claude-perch")
+                            return cmd.contains("claude-perch") && cmd != expectedCommand
                         }
                     }
                     return false
                 }
-                if !hasOurHook {
-                    existingEvent.append(contentsOf: config)
-                    hooks[event] = existingEvent
+
+                let hasCorrectHook = existingEvent.contains { entry in
+                    if let entryHooks = entry["hooks"] as? [[String: Any]] {
+                        return entryHooks.contains { h in
+                            (h["command"] as? String) == expectedCommand
+                        }
+                    }
+                    return false
                 }
+                if !hasCorrectHook {
+                    existingEvent.append(contentsOf: config)
+                }
+                hooks[event] = existingEvent
             } else {
                 hooks[event] = config
             }
@@ -259,15 +209,15 @@ struct HookInstaller {
         return false
     }
 
-    /// Uninstall hooks from settings.json and remove script
+    /// Uninstall hooks from settings.json and remove legacy script
     static func uninstall() {
         let claudeDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude")
-        let hooksDir = claudeDir.appendingPathComponent("hooks")
-        let pythonScript = hooksDir.appendingPathComponent("claude-perch-state.py")
         let settings = claudeDir.appendingPathComponent("settings.json")
 
-        try? FileManager.default.removeItem(at: pythonScript)
+        // Clean up legacy launcher script
+        let legacyScript = claudeDir.appendingPathComponent("hooks/claude-perch-state.py")
+        try? FileManager.default.removeItem(at: legacyScript)
 
         guard let data = try? Data(contentsOf: settings),
               var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -309,5 +259,4 @@ struct HookInstaller {
         }
     }
 
-    // Python detection is now handled by the launcher script itself
 }
