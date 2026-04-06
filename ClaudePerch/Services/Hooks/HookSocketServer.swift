@@ -47,6 +47,7 @@ struct HookEvent: Codable, Sendable {
     let notificationType: String?
     let message: String?
     let rateLimits: RateLimitInfo?
+    let hasAlwaysAllow: Bool?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -56,10 +57,11 @@ struct HookEvent: Codable, Sendable {
         case notificationType = "notification_type"
         case message
         case rateLimits = "rate_limits"
+        case hasAlwaysAllow = "has_always_allow"
     }
 
     /// Create a copy with updated toolUseId
-    init(sessionId: String, cwd: String, event: String, status: String, pid: Int?, tty: String?, tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?, message: String?, rateLimits: RateLimitInfo? = nil) {
+    init(sessionId: String, cwd: String, event: String, status: String, pid: Int?, tty: String?, tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?, message: String?, rateLimits: RateLimitInfo? = nil, hasAlwaysAllow: Bool? = nil) {
         self.sessionId = sessionId
         self.cwd = cwd
         self.event = event
@@ -72,6 +74,7 @@ struct HookEvent: Codable, Sendable {
         self.notificationType = notificationType
         self.message = message
         self.rateLimits = rateLimits
+        self.hasAlwaysAllow = hasAlwaysAllow
     }
 
     var sessionPhase: SessionPhase {
@@ -87,7 +90,8 @@ struct HookEvent: Codable, Sendable {
                 toolUseId: toolUseId ?? "",
                 toolName: tool ?? "unknown",
                 toolInput: toolInput,
-                receivedAt: Date()
+                receivedAt: Date(),
+                hasAlwaysAllow: hasAlwaysAllow ?? false
             ))
         case "waiting_for_input":
             return .waitingForInput

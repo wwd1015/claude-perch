@@ -14,6 +14,7 @@ struct PermissionContext: Sendable {
     let toolName: String
     let toolInput: [String: AnyCodable]?
     let receivedAt: Date
+    let hasAlwaysAllow: Bool
 
     /// Format tool input for display
     var formattedInput: String? {

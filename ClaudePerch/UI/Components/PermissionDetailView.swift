@@ -257,8 +257,9 @@ struct PermissionDetailView: View {
 
     // MARK: - Approval Buttons (Deny / Allow / Always Allow / Bypass - matches terminal)
 
-    // Always show all 4 buttons (like CodeIsland) — the hook event doesn't tell us
-    // which options the terminal shows, so we always offer Deny/Allow/Always/Bypass.
+    // Dynamically show buttons based on what the terminal offers.
+    // The hook event includes has_always_allow (from permission_suggestions).
+    // Always show Deny + Allow + Bypass. Only show "Always" when terminal offers it.
     private var approvalButtons: some View {
         HStack(spacing: 6) {
             HotkeyButton(label: "Deny", hotkey: "^N",
@@ -271,10 +272,12 @@ struct PermissionDetailView: View {
                          textColor: .white, fontWeight: .semibold,
                          action: onApprove)
 
-            HotkeyButton(label: "Always", hotkey: "^A",
-                         color: Color(red: 0.2, green: 0.45, blue: 0.3),
-                         textColor: .white.opacity(0.8),
-                         action: onAlwaysAllowAction)
+            if context.hasAlwaysAllow {
+                HotkeyButton(label: "Always", hotkey: "^A",
+                             color: Color(red: 0.2, green: 0.45, blue: 0.3),
+                             textColor: .white.opacity(0.8),
+                             action: onAlwaysAllowAction)
+            }
 
             HotkeyButton(label: "Bypass", hotkey: "Esc",
                          color: Color(red: 0.5, green: 0.25, blue: 0.2),

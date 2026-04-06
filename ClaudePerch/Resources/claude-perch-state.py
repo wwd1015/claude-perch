@@ -89,6 +89,9 @@ def main():
     # Extract rate limits if present
     rate_limits = data.get("rate_limits", None)
 
+    # Check if "Always Allow" is available (permission_suggestions present)
+    has_always_allow = "permission_suggestions" in data and data["permission_suggestions"]
+
     # Build state object
     state = {
         "session_id": session_id,
@@ -101,6 +104,10 @@ def main():
     # Include rate limits when available
     if rate_limits:
         state["rate_limits"] = rate_limits
+
+    # Include always-allow flag for permission requests
+    if event == "PermissionRequest":
+        state["has_always_allow"] = has_always_allow
 
     # Map events to status
     if event == "UserPromptSubmit":

@@ -140,7 +140,8 @@ extension HookEvent {
                 toolUseId: toolUseId ?? "",
                 toolName: tool,
                 toolInput: toolInput,
-                receivedAt: Date()
+                receivedAt: Date(),
+                hasAlwaysAllow: hasAlwaysAllow ?? false
             ))
         }
 
