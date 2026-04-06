@@ -89,6 +89,7 @@ struct GeneralSettingsView: View {
     @AppStorage("smartSuppression") private var smartSuppression = true
     @AppStorage("autoCollapse") private var autoCollapse = true
     @AppStorage("showUsage") private var showUsage = false
+    @State private var showUninstallConfirmation = false
 
     var body: some View {
         Form {
@@ -145,6 +146,26 @@ struct GeneralSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
+                }
+            }
+
+            Section("Danger Zone") {
+                Button(role: .destructive) {
+                    showUninstallConfirmation = true
+                } label: {
+                    HStack {
+                        Image(systemName: "trash")
+                        Text("Uninstall Claude Perch")
+                    }
+                    .foregroundColor(.red)
+                }
+                .alert("Uninstall Claude Perch?", isPresented: $showUninstallConfirmation) {
+                    Button("Cancel", role: .cancel) {}
+                    Button("Uninstall", role: .destructive) {
+                        HookInstaller.selfDelete()
+                    }
+                } message: {
+                    Text("This will remove all hooks from settings.json, delete the hook script, and move the app to Trash.")
                 }
             }
         }

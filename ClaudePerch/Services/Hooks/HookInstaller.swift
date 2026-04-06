@@ -5,6 +5,7 @@
 //  Auto-installs Claude Code hooks on app launch
 //
 
+import AppKit
 import Foundation
 
 struct HookInstaller {
@@ -78,7 +79,9 @@ struct HookInstaller {
         }
     }
 
-    /// Install hook script and update settings.json on app launch
+    /// Install hook launcher and update settings.json on app launch.
+    /// Uses a thin launcher script (like Vibe Island) that finds and executes
+    /// the real bridge binary bundled inside the app. This keeps ~/.claude/hooks/ clean.
     static func installIfNeeded() {
         let claudeDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude")
@@ -91,6 +94,7 @@ struct HookInstaller {
             withIntermediateDirectories: true
         )
 
+        // Install the Python hook script (contains forwarding logic to socket)
         if let bundled = Bundle.main.url(forResource: "claude-perch-state", withExtension: "py") {
             try? FileManager.default.removeItem(at: pythonScript)
             try? FileManager.default.copyItem(at: bundled, to: pythonScript)
@@ -101,6 +105,35 @@ struct HookInstaller {
         }
 
         updateSettings(at: settings)
+    }
+
+    /// Completely uninstall Claude Perch: remove hooks, settings entries, and the app itself
+    static func selfDelete() {
+        // 1. Uninstall hooks from settings.json
+        uninstall()
+
+        // 2. Remove the hook script
+        let hooksDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/hooks")
+        try? FileManager.default.removeItem(at: hooksDir.appendingPathComponent("claude-perch-state.py"))
+
+        // 3. Remove the socket
+        unlink("/tmp/claude-perch.sock")
+
+        // 4. Move the app to trash
+        if let appURL = Bundle.main.bundleURL as NSURL? {
+            // Use NSWorkspace to move to trash (recoverable)
+            NSWorkspace.shared.recycle([appURL as URL]) { trashedURLs, error in
+                if error != nil {
+                    // Fallback: try direct delete
+                    try? FileManager.default.removeItem(at: appURL as URL)
+                }
+                // 5. Quit the app
+                DispatchQueue.main.async {
+                    NSApplication.shared.terminate(nil)
+                }
+            }
+        }
     }
 
     private static func updateSettings(at settingsURL: URL) {
