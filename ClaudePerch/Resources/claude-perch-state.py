@@ -189,12 +189,20 @@ def main():
 
             elif decision == "answer":
                 # User selected an option for AskUserQuestion
+                # Parse answer - may be JSON object with question keys
+                try:
+                    answers_dict = json.loads(reason)
+                    if not isinstance(answers_dict, dict):
+                        answers_dict = {"answer": reason}
+                except (json.JSONDecodeError, TypeError):
+                    answers_dict = {"answer": reason}
+
                 output = {
                     "hookSpecificOutput": {
                         "hookEventName": "PermissionRequest",
                         "decision": {
                             "behavior": "allow",
-                            "answer": reason,
+                            "updatedInput": {"answers": answers_dict}
                         },
                     }
                 }

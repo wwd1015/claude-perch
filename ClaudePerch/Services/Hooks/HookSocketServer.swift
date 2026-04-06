@@ -143,6 +143,9 @@ class HookSocketServer {
     private var pendingPermissions: [String: PendingPermission] = [:]
     private let permissionsLock = NSLock()
 
+    /// Dispatch sources monitoring peer socket disconnects, keyed by toolUseId
+    private var peerMonitorSources: [String: DispatchSourceRead] = [:]
+
     /// Cache tool_use_id from PreToolUse to correlate with PermissionRequest
     /// Key: "sessionId:toolName:serializedInput" -> Queue of tool_use_ids (FIFO)
     /// PermissionRequest events don't include tool_use_id, so we cache from PreToolUse
@@ -251,6 +254,7 @@ class HookSocketServer {
             now.timeIntervalSince($0.value.receivedAt) > Self.permissionTimeoutSeconds
         }
         for (toolUseId, pending) in stale {
+            cancelPeerMonitor(toolUseId: toolUseId)
             logger.info("Permission expired for \(pending.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public) (age: \(String(format: "%.0f", now.timeIntervalSince(pending.receivedAt)), privacy: .public)s)")
             close(pending.clientSocket)
             pendingPermissions.removeValue(forKey: toolUseId)
@@ -269,6 +273,11 @@ class HookSocketServer {
         acceptSource?.cancel()
         acceptSource = nil
         unlink(Self.socketPath)
+
+        for (_, source) in peerMonitorSources {
+            source.cancel()
+        }
+        peerMonitorSources.removeAll()
 
         permissionsLock.lock()
         for (_, pending) in pendingPermissions {
@@ -324,6 +333,8 @@ class HookSocketServer {
     }
 
     private func cleanupSpecificPermission(toolUseId: String) {
+        cancelPeerMonitor(toolUseId: toolUseId)
+
         permissionsLock.lock()
         defer { permissionsLock.unlock() }
         guard let pending = pendingPermissions.removeValue(forKey: toolUseId) else {
@@ -338,6 +349,7 @@ class HookSocketServer {
         permissionsLock.lock()
         let matching = pendingPermissions.filter { $0.value.sessionId == sessionId }
         for (toolUseId, pending) in matching {
+            cancelPeerMonitor(toolUseId: toolUseId)
             logger.debug("Cleaning up stale permission for \(sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public)")
             close(pending.clientSocket)
             pendingPermissions.removeValue(forKey: toolUseId)
@@ -418,6 +430,50 @@ class HookSocketServer {
         if !keysToRemove.isEmpty {
             logger.debug("Cleaned up \(keysToRemove.count) cache entries for session \(sessionId.prefix(8), privacy: .public)")
         }
+    }
+
+    // MARK: - Peer Disconnect Monitoring
+
+    /// Start monitoring a client socket for peer disconnect (EOF)
+    private func startPeerMonitor(toolUseId: String, clientSocket: Int32, sessionId: String) {
+        let source = DispatchSource.makeReadSource(fileDescriptor: clientSocket, queue: queue)
+        source.setEventHandler { [weak self] in
+            var buf: UInt8 = 0
+            let result = recv(clientSocket, &buf, 1, MSG_PEEK)
+            if result == 0 || (result < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                // Peer disconnected (EOF) or error — permission was handled in the terminal
+                logger.info("Peer disconnected for \(sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public)")
+                self?.handlePeerDisconnect(toolUseId: toolUseId)
+            }
+        }
+        source.setCancelHandler {
+            // No-op: socket is closed elsewhere
+        }
+        source.resume()
+        peerMonitorSources[toolUseId] = source
+    }
+
+    /// Cancel and remove a peer monitor source for a given toolUseId
+    private func cancelPeerMonitor(toolUseId: String) {
+        if let source = peerMonitorSources.removeValue(forKey: toolUseId) {
+            source.cancel()
+        }
+    }
+
+    /// Handle peer disconnect: remove the pending permission and notify
+    private func handlePeerDisconnect(toolUseId: String) {
+        cancelPeerMonitor(toolUseId: toolUseId)
+
+        permissionsLock.lock()
+        guard let pending = pendingPermissions.removeValue(forKey: toolUseId) else {
+            permissionsLock.unlock()
+            return
+        }
+        permissionsLock.unlock()
+
+        logger.info("Clearing permission after peer disconnect for \(pending.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public)")
+        close(pending.clientSocket)
+        permissionExpiredHandler?(pending.sessionId, pending.toolUseId)
     }
 
     // MARK: - Private
@@ -523,8 +579,10 @@ class HookSocketServer {
                 receivedAt: Date()
             )
             permissionsLock.lock()
-            defer { permissionsLock.unlock() }
             pendingPermissions[toolUseId] = pending
+            permissionsLock.unlock()
+
+            startPeerMonitor(toolUseId: toolUseId, clientSocket: clientSocket, sessionId: event.sessionId)
 
             eventHandler?(updatedEvent)
             return
@@ -536,6 +594,8 @@ class HookSocketServer {
     }
 
     private func sendPermissionResponse(toolUseId: String, decision: String, reason: String?) {
+        cancelPeerMonitor(toolUseId: toolUseId)
+
         let pending: PendingPermission
         permissionsLock.lock()
         guard let found = pendingPermissions.removeValue(forKey: toolUseId) else {
@@ -575,20 +635,23 @@ class HookSocketServer {
         let pending: PendingPermission
         do {
             permissionsLock.lock()
-            defer { permissionsLock.unlock() }
             let matchingPending = pendingPermissions.values
                 .filter { $0.sessionId == sessionId }
                 .sorted { $0.receivedAt > $1.receivedAt }
                 .first
 
             guard let found = matchingPending else {
+                permissionsLock.unlock()
                 logger.debug("No pending permission for session: \(sessionId.prefix(8), privacy: .public)")
                 return
             }
 
             pendingPermissions.removeValue(forKey: found.toolUseId)
+            permissionsLock.unlock()
             pending = found
         }
+
+        cancelPeerMonitor(toolUseId: pending.toolUseId)
 
         let response = HookResponse(decision: decision, reason: reason)
         guard let data = try? JSONEncoder().encode(response) else {

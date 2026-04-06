@@ -475,9 +475,25 @@ struct AskUserQuestionMultiView: View {
 
             // Submit All Answers button
             Button {
-                // Serialize answers as JSON array
-                let answers = (0..<allQuestions.count).map { selectedAnswers[$0] ?? "" }
-                if let data = try? JSONSerialization.data(withJSONObject: answers),
+                // Serialize answers as JSON object with question keys
+                var answersDict: [String: String] = [:]
+                let questions = allQuestions
+                for (index, _) in questions.enumerated() {
+                    if let answer = selectedAnswers[index] {
+                        // Try to get the question's key field, fall back to question text
+                        if let input = context.toolInput,
+                           let questionsArray = input["questions"]?.value as? [[String: Any]],
+                           index < questionsArray.count {
+                            let key = questionsArray[index]["key"] as? String
+                                ?? questionsArray[index]["header"] as? String
+                                ?? String(index)
+                            answersDict[key] = answer
+                        } else {
+                            answersDict[String(index)] = answer
+                        }
+                    }
+                }
+                if let data = try? JSONSerialization.data(withJSONObject: answersDict),
                    let json = String(data: data, encoding: .utf8) {
                     onAnswer?(json)
                 }

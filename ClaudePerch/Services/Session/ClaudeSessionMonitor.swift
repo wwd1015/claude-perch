@@ -16,6 +16,8 @@ class ClaudeSessionMonitor: ObservableObject {
     @Published var pendingInstances: [SessionState] = []
 
     private var cancellables = Set<AnyCancellable>()
+    private var processMonitors: [Int: DispatchSourceProcess] = [:]
+    private var graceTimers: [Int: DispatchWorkItem] = [:]
 
     init() {
         SessionStore.shared.sessionsPublisher
@@ -36,16 +38,11 @@ class ClaudeSessionMonitor: ObservableObject {
         // Discover existing sessions on launch (like Vibe Island)
         discoverExistingSessions()
 
-        // Periodically clean up stale sessions (every 30s)
-        staleCleanupTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        // Safety-net cleanup for no-PID sessions (every 120s)
+        staleCleanupTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.cleanupStaleSessions()
             }
-        }
-
-        // Run initial cleanup after a short delay (let discovery finish first)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-            self?.cleanupStaleSessions()
         }
 
         HookSocketServer.shared.start(
@@ -182,17 +179,83 @@ class ClaudeSessionMonitor: ObservableObject {
         }
     }
 
+    // MARK: - DispatchSource Process Monitoring
+
+    /// Start monitoring a process for exit via DispatchSource
+    private func startProcessMonitor(pid: Int, sessionId: String) {
+        guard processMonitors[pid] == nil else { return }
+
+        let source = DispatchSource.makeProcessSource(
+            identifier: pid_t(pid),
+            eventMask: .exit,
+            queue: .main
+        )
+
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in
+                self?.handleProcessExit(pid: pid, sessionId: sessionId)
+            }
+        }
+
+        processMonitors[pid] = source
+        source.resume()
+
+        // Safety: if the process is already dead, handle immediately
+        if kill(pid_t(pid), 0) != 0 {
+            handleProcessExit(pid: pid, sessionId: sessionId)
+        }
+    }
+
+    /// Handle a detected process exit with a 5-second grace period
+    private func handleProcessExit(pid: Int, sessionId: String) {
+        // Cancel and remove the dispatch source
+        if let source = processMonitors.removeValue(forKey: pid) {
+            source.cancel()
+        }
+
+        // Cancel any existing grace timer for this PID
+        graceTimers[pid]?.cancel()
+
+        // Start a 5-second grace period before archiving
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.graceTimers.removeValue(forKey: pid)
+
+            // If a new monitor was attached (process restarted), skip archiving
+            if self.processMonitors[pid] != nil { return }
+
+            // If the session got fresh activity (new PID assigned), skip archiving
+            if let session = self.instances.first(where: { $0.sessionId == sessionId }),
+               let currentPid = session.pid, currentPid != pid {
+                return
+            }
+
+            self.archiveSession(sessionId: sessionId)
+        }
+
+        graceTimers[pid] = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
+    }
+
+    /// Stop monitoring a process and cancel any pending grace timer
+    private func stopProcessMonitor(pid: Int) {
+        if let source = processMonitors.removeValue(forKey: pid) {
+            source.cancel()
+        }
+        if let timer = graceTimers.removeValue(forKey: pid) {
+            timer.cancel()
+        }
+    }
+
     // MARK: - Stale Session Cleanup
 
-    /// Remove sessions only when their Claude process has died
-    /// (user quit Claude in that terminal window)
+    /// Safety-net cleanup for sessions discovered from disk that have no PID
     private func cleanupStaleSessions() {
         for session in instances {
-            guard let pid = session.pid else { continue }
-            // Check if process is still alive (kill with signal 0 just checks existence)
-            if kill(pid_t(pid), 0) != 0 {
-                archiveSession(sessionId: session.sessionId)
-            }
+            // Only clean up sessions with no PID (discovered from disk)
+            // Sessions with PIDs are handled by DispatchSource monitors
+            guard session.pid == nil else { continue }
+            archiveSession(sessionId: session.sessionId)
         }
     }
 
@@ -295,6 +358,24 @@ class ClaudeSessionMonitor: ObservableObject {
     // MARK: - State Update
 
     private func updateFromSessions(_ sessions: [SessionState]) {
+        // Diff PIDs: start monitors for new PIDs, stop for removed PIDs
+        let oldPids = Set(instances.compactMap { $0.pid })
+        let newPidSessions = sessions.compactMap { s -> (Int, String)? in
+            guard let pid = s.pid else { return nil }
+            return (pid, s.sessionId)
+        }
+        let newPids = Set(newPidSessions.map { $0.0 })
+
+        // Start monitors for newly appeared PIDs
+        for (pid, sessionId) in newPidSessions where !oldPids.contains(pid) {
+            startProcessMonitor(pid: pid, sessionId: sessionId)
+        }
+
+        // Stop monitors for PIDs no longer in the session list
+        for pid in oldPids.subtracting(newPids) {
+            stopProcessMonitor(pid: pid)
+        }
+
         instances = sessions
         // Only permission requests are "pending" (trigger panel open)
         // waitingForInput (Done) is NOT pending — it shows in the closed bar
