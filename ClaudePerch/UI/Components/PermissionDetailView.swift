@@ -257,26 +257,8 @@ struct PermissionDetailView: View {
 
     // MARK: - Approval Buttons (Deny / Allow / Always Allow / Bypass - matches terminal)
 
-    /// Whether this tool supports "Always Allow" (matches Claude Code terminal behavior)
-    /// For Bash: only show when the command is simple enough to create a pattern rule
-    /// (Claude Code shows "don't ask again" for simple commands, not chained/piped ones)
-    private var supportsAlwaysAllow: Bool {
-        let tool = context.toolName
-
-        if tool == "Bash" {
-            // Check if command is simple enough for a pattern rule
-            guard let command = extractString("command") else { return false }
-            let chainChars: [Character] = ["|", ";"]
-            let chainStrings = ["&&", "||", "$(", "`"]
-            if command.contains(where: { chainChars.contains($0) }) { return false }
-            if chainStrings.contains(where: { command.contains($0) }) { return false }
-            return true
-        }
-
-        return ["Edit", "Write", "MultiEdit", "NotebookEdit"].contains(tool)
-            || tool.hasPrefix("mcp__")
-    }
-
+    // Always show all 4 buttons (like CodeIsland) — the hook event doesn't tell us
+    // which options the terminal shows, so we always offer Deny/Allow/Always/Bypass.
     private var approvalButtons: some View {
         HStack(spacing: 6) {
             HotkeyButton(label: "Deny", hotkey: "^N",
@@ -289,12 +271,10 @@ struct PermissionDetailView: View {
                          textColor: .white, fontWeight: .semibold,
                          action: onApprove)
 
-            if supportsAlwaysAllow {
-                HotkeyButton(label: "Always Allow", hotkey: "^A",
-                             color: Color(red: 0.2, green: 0.45, blue: 0.3),
-                             textColor: .white.opacity(0.8),
-                             action: onAlwaysAllowAction)
-            }
+            HotkeyButton(label: "Always", hotkey: "^A",
+                         color: Color(red: 0.2, green: 0.45, blue: 0.3),
+                         textColor: .white.opacity(0.8),
+                         action: onAlwaysAllowAction)
 
             HotkeyButton(label: "Bypass", hotkey: "Esc",
                          color: Color(red: 0.5, green: 0.25, blue: 0.2),
