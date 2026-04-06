@@ -467,5 +467,4 @@ struct NotchView: View {
         }
         return false
     }
-
 }
