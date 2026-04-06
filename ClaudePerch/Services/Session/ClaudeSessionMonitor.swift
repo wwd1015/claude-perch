@@ -69,10 +69,9 @@ class ClaudeSessionMonitor: ObservableObject {
                     }
                 }
 
-                if event.event == "Stop" {
-                    HookSocketServer.shared.cancelPendingPermissions(sessionId: event.sessionId)
-                }
-
+                // Don't cancel permissions on Stop — Stop just means Claude finished
+                // a turn, not that permissions are invalid. Only PostToolUse means the
+                // tool was actually handled (approved elsewhere or auto-approved).
                 if event.event == "PostToolUse", let toolUseId = event.toolUseId {
                     HookSocketServer.shared.cancelPendingPermission(toolUseId: toolUseId)
                 }
