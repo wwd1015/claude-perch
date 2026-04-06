@@ -9,6 +9,75 @@ import Foundation
 
 struct HookInstaller {
 
+    private static let hookScriptVersion = 1
+
+    /// Required hook events that must be registered in settings.json
+    private static let requiredHookEvents = [
+        "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
+        "Notification", "Stop", "SubagentStop", "SessionStart", "SessionEnd",
+        "PreCompact"
+    ]
+
+    /// Verify hooks are up-to-date and repair if stale or missing
+    static func verifyAndRepair() {
+        let hooksDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/hooks")
+        let pythonScript = hooksDir.appendingPathComponent("claude-perch-state.py")
+
+        // Check if hook script exists and has correct version
+        if FileManager.default.fileExists(atPath: pythonScript.path) {
+            if let content = try? String(contentsOf: pythonScript, encoding: .utf8) {
+                let expectedMarker = "# HOOK_VERSION=\(hookScriptVersion)"
+                if content.contains(expectedMarker) {
+                    // Version matches, verify settings.json hooks are registered
+                    verifySettingsHooks()
+                    return
+                }
+            }
+        }
+
+        // Stale or missing — reinstall
+        installIfNeeded()
+    }
+
+    /// Verify all required hook events are registered in settings.json
+    private static func verifySettingsHooks() {
+        let settings = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/settings.json")
+
+        guard let data = try? Data(contentsOf: settings),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = json["hooks"] as? [String: Any] else {
+            // No settings or hooks section — reinstall
+            installIfNeeded()
+            return
+        }
+
+        for event in requiredHookEvents {
+            guard let entries = hooks[event] as? [[String: Any]] else {
+                // Missing event — reinstall
+                installIfNeeded()
+                return
+            }
+
+            let hasOurHook = entries.contains { entry in
+                if let entryHooks = entry["hooks"] as? [[String: Any]] {
+                    return entryHooks.contains { h in
+                        let cmd = h["command"] as? String ?? ""
+                        return cmd.contains("claude-perch-state.py")
+                    }
+                }
+                return false
+            }
+
+            if !hasOurHook {
+                // Our hook missing from this event — reinstall
+                installIfNeeded()
+                return
+            }
+        }
+    }
+
     /// Install hook script and update settings.json on app launch
     static func installIfNeeded() {
         let claudeDir = FileManager.default.homeDirectoryForCurrentUser

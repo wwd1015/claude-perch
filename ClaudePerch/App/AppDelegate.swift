@@ -67,7 +67,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Mixpanel.mainInstance().track(event: "App Launched")
         Mixpanel.mainInstance().flush()
 
-        HookInstaller.installIfNeeded()
+        HookInstaller.verifyAndRepair()
         NSApplication.shared.setActivationPolicy(.accessory)
 
         // Suppress cmux notifications (Claude Perch handles them)

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# HOOK_VERSION=1
 """
 Claude Perch Hook
 - Sends session state to ClaudePerch.app via Unix socket
