@@ -20,11 +20,11 @@ struct NotchView: View {
     @ObservedObject var viewModel: NotchViewModel
     @StateObject private var sessionMonitor = ClaudeSessionMonitor()
     @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
+    @StateObject private var completionQueue = CompletionQueue()
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var usageProvider = UsageStatsProvider.shared
     @State private var previousPendingIds: Set<String> = []
     @State private var previousWaitingForInputIds: Set<String> = []
-    @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
     @State private var isVisible: Bool = false
     @State private var isHovering: Bool = false
     @State private var isBouncing: Bool = false
@@ -53,19 +53,9 @@ struct NotchView: View {
         sessionMonitor.instances.contains { $0.phase.isWaitingForApproval }
     }
 
-    /// Whether any Claude session is waiting for user input (done/ready state) within the display window
+    /// Whether any Claude session is waiting for user input (done/ready state)
     private var hasWaitingForInput: Bool {
-        let now = Date()
-        let displayDuration: TimeInterval = 30  // Show checkmark for 30 seconds
-
-        return sessionMonitor.instances.contains { session in
-            guard session.phase == .waitingForInput else { return false }
-            // Only show if within the 30-second display window
-            if let enteredAt = waitingForInputTimestamps[session.stableId] {
-                return now.timeIntervalSince(enteredAt) < displayDuration
-            }
-            return false
-        }
+        completionQueue.isShowing
     }
 
     // MARK: - Sizing
@@ -190,6 +180,9 @@ struct NotchView: View {
                     .onHover { hovering in
                         withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
                             isHovering = hovering
+                        }
+                        if hasWaitingForInput {
+                            completionQueue.setHovering(hovering)
                         }
                     }
                     .onTapGesture {
@@ -493,9 +486,9 @@ struct NotchView: View {
         switch newStatus {
         case .opened, .popping:
             isVisible = true
-            // Clear waiting-for-input timestamps only when manually opened (user acknowledged)
+            // Clear completion queue when manually opened (user acknowledged)
             if viewModel.openReason == .click || viewModel.openReason == .hover {
-                waitingForInputTimestamps.removeAll()
+                completionQueue.cancelAll()
             }
         case .closed:
             // Don't hide on non-notched devices - users need a visible target
@@ -549,22 +542,14 @@ struct NotchView: View {
         let currentIds = Set(waitingForInputSessions.map { $0.stableId })
         let newWaitingIds = currentIds.subtracting(previousWaitingForInputIds)
 
-        // Track timestamps for newly waiting sessions
-        let now = Date()
-        for session in waitingForInputSessions where newWaitingIds.contains(session.stableId) {
-            waitingForInputTimestamps[session.stableId] = now
-        }
-
-        // Clean up timestamps for sessions no longer waiting
-        let staleIds = Set(waitingForInputTimestamps.keys).subtracting(currentIds)
-        for staleId in staleIds {
-            waitingForInputTimestamps.removeValue(forKey: staleId)
-        }
-
-        // Bounce the notch when a session newly enters waitingForInput state
+        // Enqueue newly waiting sessions into the completion queue
         if !newWaitingIds.isEmpty {
-            // Get the sessions that just entered waitingForInput
             let newlyWaitingSessions = waitingForInputSessions.filter { newWaitingIds.contains($0.stableId) }
+
+            // Enqueue each new completion
+            for session in newlyWaitingSessions {
+                completionQueue.enqueue(sessionId: session.stableId)
+            }
 
             // Play task complete sound (respects settings)
             if soundEnabled && soundTaskComplete,
@@ -594,12 +579,6 @@ struct NotchView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     isBouncing = false
                 }
-            }
-
-            // Schedule hiding the checkmark after 30 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [self] in
-                // Trigger a UI update to re-evaluate hasWaitingForInput
-                handleProcessingChange()
             }
         }
 
@@ -715,7 +694,13 @@ struct NotchView: View {
                 return true
             }
 
-            let isFocused = await TerminalVisibilityDetector.isSessionFocused(sessionPid: pid)
+            let isFocused = await TerminalVisibilityDetector.isSessionFocused(
+                sessionPid: pid,
+                cwd: session.cwd,
+                tty: session.tty,
+                sessionId: session.sessionId,
+                isInTmux: session.isInTmux
+            )
             if !isFocused {
                 return true
             }
