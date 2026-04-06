@@ -2,24 +2,23 @@
 //  GlobalHotkeyManager.swift
 //  ClaudePerch
 //
-//  Global keyboard shortcuts matching Vibe Island:
-//  ^G = Toggle panel (open/close notch from anywhere)
-//  ^Y = Approve    ^N = Deny
-//  ^A = Always Allow    ^B = Bypass Permissions
-//  ^T = Jump to Terminal
+//  Global keyboard shortcuts using CGEvent tap (reliable from any app):
+//  ^G = Toggle panel    ^Y = Approve    ^N = Deny
+//  ^A = Always Allow    ^B = Bypass     ^T = Jump to Terminal
 //  ^1-9 = Select question option
 //
 
 import AppKit
 import os.log
 
-private let logger = Logger(subsystem: "com.claudeisland", category: "Hotkeys")
+private let logger = Logger(subsystem: "com.claudeperch", category: "Hotkeys")
 
 @MainActor
 class GlobalHotkeyManager {
     static let shared = GlobalHotkeyManager()
 
-    private var globalMonitor: Any?
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
     private var localMonitor: Any?
 
     // Callbacks
@@ -34,87 +33,158 @@ class GlobalHotkeyManager {
     private init() {}
 
     func start() {
-        // Request Accessibility permission if not granted (shows system prompt)
+        // Request Accessibility permission if not granted
         if !AXIsProcessTrusted() {
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
             AXIsProcessTrustedWithOptions(options)
-            logger.warning("Accessibility not granted - prompting user. Global hotkeys won't work until enabled.")
+            logger.warning("Accessibility not granted — prompting user.")
         }
 
-        // Global monitor: works from ANY app (requires Accessibility permission)
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleKeyEvent(event)
-        }
+        setupEventTap()
 
-        // Local monitor: for when Claude Perch itself is the key app
+        // Local monitor for when our own windows are focused
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if self?.handleKeyEvent(event) == true {
+            if self?.handleKey(event) == true {
                 return nil
             }
             return event
         }
 
-        logger.info("Hotkey monitors started (accessibility: \(AXIsProcessTrusted()))")
+        logger.info("Hotkey manager started (accessibility: \(AXIsProcessTrusted()))")
     }
 
     func stop() {
-        if let m = globalMonitor { NSEvent.removeMonitor(m); globalMonitor = nil }
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            eventTap = nil
+        }
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+            runLoopSource = nil
+        }
         if let m = localMonitor { NSEvent.removeMonitor(m); localMonitor = nil }
     }
 
-    /// Handle a key event. Returns true if consumed.
+    // MARK: - CGEvent Tap (works globally)
+
+    private func setupEventTap() {
+        // Store self pointer for the C callback
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,  // Don't consume events, just observe
+            eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
+            callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
+                guard let refcon = refcon else { return Unmanaged.passRetained(event) }
+                let manager = Unmanaged<GlobalHotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
+
+                // Check for Control modifier (no Cmd, no Option)
+                let flags = event.flags
+                guard flags.contains(.maskControl),
+                      !flags.contains(.maskCommand),
+                      !flags.contains(.maskAlternate) else {
+                    return Unmanaged.passRetained(event)
+                }
+
+                let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+                DispatchQueue.main.async {
+                    manager.handleKeyCode(Int(keyCode))
+                }
+
+                return Unmanaged.passRetained(event)
+            },
+            userInfo: refcon
+        ) else {
+            logger.error("Failed to create CGEvent tap — Accessibility permission may be missing")
+            // Fall back to NSEvent global monitor
+            setupFallbackMonitor()
+            return
+        }
+
+        eventTap = tap
+        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        if let source = runLoopSource {
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+        }
+        CGEvent.tapEnable(tap: tap, enable: true)
+        logger.info("CGEvent tap created successfully")
+    }
+
+    /// Fallback if CGEvent tap fails (e.g., no Accessibility yet)
+    private func setupFallbackMonitor() {
+        let monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleKey(event)
+        }
+        // Store in localMonitor slot (we only use one or the other)
+        if localMonitor == nil {
+            localMonitor = monitor
+        }
+        logger.info("Using NSEvent fallback monitor")
+    }
+
+    // MARK: - Key Handling
+
+    private func handleKeyCode(_ keyCode: Int) {
+        switch keyCode {
+        case 5:  // G
+            logger.info("Hotkey: ^G (toggle panel)")
+            onTogglePanel?()
+        case 16: // Y
+            logger.info("Hotkey: ^Y (approve)")
+            onApprove?()
+        case 45: // N
+            logger.info("Hotkey: ^N (deny)")
+            onDeny?()
+        case 0:  // A
+            logger.info("Hotkey: ^A (always allow)")
+            onAlwaysAllow?()
+        case 11: // B
+            logger.info("Hotkey: ^B (bypass)")
+            onBypass?()
+        case 17: // T
+            logger.info("Hotkey: ^T (jump to terminal)")
+            onJumpToTerminal?()
+        case 18: // 1
+            onSelectOption?(0)
+        case 19: // 2
+            onSelectOption?(1)
+        case 20: // 3
+            onSelectOption?(2)
+        case 21: // 4
+            onSelectOption?(3)
+        case 23: // 5
+            onSelectOption?(4)
+        case 22: // 6
+            onSelectOption?(5)
+        case 26: // 7
+            onSelectOption?(6)
+        case 28: // 8
+            onSelectOption?(7)
+        case 25: // 9
+            onSelectOption?(8)
+        default:
+            break
+        }
+    }
+
+    /// Handle NSEvent (for local monitor and fallback)
     @discardableResult
-    private func handleKeyEvent(_ event: NSEvent) -> Bool {
-        // Require Control key, no Cmd or Option
+    private func handleKey(_ event: NSEvent) -> Bool {
         guard event.modifierFlags.contains(.control),
               !event.modifierFlags.contains(.command),
               !event.modifierFlags.contains(.option) else { return false }
 
-        switch event.keyCode {
-        case 5:  // 'G' key - Toggle panel
-            logger.info("Hotkey: ^G (toggle panel)")
-            Task { @MainActor in self.onTogglePanel?() }
-            return true
+        let keyCode = Int(event.keyCode)
 
-        case 16: // 'Y' key - Approve
-            logger.info("Hotkey: ^Y (approve)")
-            Task { @MainActor in self.onApprove?() }
+        switch keyCode {
+        case 5, 16, 45, 0, 11, 17, 18, 19, 20, 21, 22, 23, 25, 26, 28:
+            handleKeyCode(keyCode)
             return true
-
-        case 45: // 'N' key - Deny
-            logger.info("Hotkey: ^N (deny)")
-            Task { @MainActor in self.onDeny?() }
-            return true
-
-        case 0:  // 'A' key - Always Allow
-            logger.info("Hotkey: ^A (always allow)")
-            Task { @MainActor in self.onAlwaysAllow?() }
-            return true
-
-        case 11: // 'B' key - Bypass
-            logger.info("Hotkey: ^B (bypass)")
-            Task { @MainActor in self.onBypass?() }
-            return true
-
-        case 17: // 'T' key - Jump to Terminal
-            logger.info("Hotkey: ^T (jump to terminal)")
-            Task { @MainActor in self.onJumpToTerminal?() }
-            return true
-
         default:
-            break
+            return false
         }
-
-        // ^1 through ^9 for question options
-        if let chars = event.charactersIgnoringModifiers,
-           let digit = chars.first,
-           digit >= "1" && digit <= "9" {
-            let index = Int(String(digit))! - 1
-            logger.info("Hotkey: ^\(index + 1) (select option)")
-            Task { @MainActor in self.onSelectOption?(index) }
-            return true
-        }
-
-        return false
     }
 }

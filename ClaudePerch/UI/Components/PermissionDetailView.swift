@@ -421,23 +421,30 @@ struct AskUserQuestionMultiView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    // Option chips (selectable)
+                    // Option chips (selectable, with hotkey hints)
                     FlowLayout(spacing: 5) {
                         ForEach(Array(q.options.enumerated()), id: \.offset) { oIndex, option in
+                            let isSelected = selectedAnswers[qIndex] == option.label
                             Button {
                                 selectedAnswers[qIndex] = option.label
                             } label: {
-                                Text(option.label)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(selectedAnswers[qIndex] == option.label ? .white : .white.opacity(0.7))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(
-                                        selectedAnswers[qIndex] == option.label
-                                            ? Color(red: 0.2, green: 0.5, blue: 0.4)
-                                            : Color.white.opacity(0.1)
-                                    )
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                HStack(spacing: 4) {
+                                    // Hotkey badge
+                                    Text("^\(oIndex + 1)")
+                                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                        .foregroundColor(isSelected ? .white.opacity(0.6) : .white.opacity(0.3))
+                                    Text(option.label)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(isSelected ? .white : .white.opacity(0.7))
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    isSelected
+                                        ? Color(red: 0.2, green: 0.5, blue: 0.4)
+                                        : Color.white.opacity(0.1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
                             }
                             .buttonStyle(.plain)
                         }
