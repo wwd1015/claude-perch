@@ -43,3 +43,4 @@ releases/
 *.xcodeproj.backup/
 CLAUDE.md
 .gstack/
+.claude/worktrees/
