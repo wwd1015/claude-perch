@@ -34,13 +34,19 @@ class GlobalHotkeyManager {
     private init() {}
 
     func start() {
+        // Request Accessibility permission if not granted (shows system prompt)
+        if !AXIsProcessTrusted() {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            AXIsProcessTrustedWithOptions(options)
+            logger.warning("Accessibility not granted - prompting user. Global hotkeys won't work until enabled.")
+        }
+
         // Global monitor: works from ANY app (requires Accessibility permission)
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handleKeyEvent(event)
         }
 
         // Local monitor: for when Claude Perch itself is the key app
-        // (rare since we run as .accessory, but needed for settings window)
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if self?.handleKeyEvent(event) == true {
                 return nil
@@ -48,12 +54,7 @@ class GlobalHotkeyManager {
             return event
         }
 
-        // Check accessibility permission
-        if !AXIsProcessTrusted() {
-            logger.warning("Accessibility not granted - global hotkeys won't work. Enable in System Settings > Privacy > Accessibility")
-        }
-
-        logger.info("Hotkey monitors started (^G/Y/N/A/B/T/1-9)")
+        logger.info("Hotkey monitors started (accessibility: \(AXIsProcessTrusted()))")
     }
 
     func stop() {
