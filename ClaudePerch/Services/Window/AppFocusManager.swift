@@ -63,7 +63,7 @@ actor AppFocusManager {
                                         if surfaceTitle.contains(term.lowercased()) {
                                             Self.logger.debug("FOCUS: matched '\(term, privacy: .public)' in \(pane, privacy: .public)")
                                             let _ = Self.shell(cmux, ["focus-pane", "--pane", pane])
-                                            Self.activateGhostty()
+                                            Self.activateTerminalApp()
                                             continuation.resume(returning: true)
                                             return
                                         }
@@ -89,15 +89,26 @@ actor AppFocusManager {
                         for pane in panes {
                             Self.logger.debug("FOCUS: fallback trying \(pane, privacy: .public)")
                             let _ = Self.shell(cmux, ["focus-pane", "--pane", pane])
-                            Self.activateGhostty()
+                            Self.activateTerminalApp()
                             continuation.resume(returning: true)
                             return
                         }
                     }
                 }
 
+                // Tmux fallback: use TmuxController to switch to the correct pane
+                if isInTmux, let pid = pid {
+                    Self.logger.debug("FOCUS: trying tmux fallback for pid=\(pid)")
+                    let tmuxResult = Self.focusViaTmux(pid: pid, cwd: cwdPath)
+                    if tmuxResult {
+                        Self.activateTerminalApp()
+                        continuation.resume(returning: true)
+                        return
+                    }
+                }
+
                 // Last resort: just activate terminal
-                Self.activateGhostty()
+                Self.activateTerminalApp()
                 continuation.resume(returning: false)
             }
         }
@@ -126,9 +137,77 @@ actor AppFocusManager {
         return String(data: data, encoding: .utf8)
     }
 
-    // MARK: - Activate Ghostty
+    // MARK: - Tmux Focus Fallback
 
-    private nonisolated static func activateGhostty() {
+    /// Focus a tmux pane by finding the target for a given PID or cwd, then selecting it
+    private nonisolated static func focusViaTmux(pid: Int, cwd: String) -> Bool {
+        // Try to find tmux path
+        let tmuxPaths = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
+        guard let tmuxPath = tmuxPaths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            return false
+        }
+
+        // List all panes with their PIDs
+        guard let output = shell(tmuxPath, ["list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index} #{pane_pid}"]) else {
+            return false
+        }
+
+        // Build a simple process tree check: walk up from the Claude PID looking for a pane PID
+        for line in output.components(separatedBy: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2, let panePid = Int(parts[1]) else { continue }
+            let targetString = String(parts[0])
+
+            // Check if the Claude PID is a descendant of this pane PID
+            if isDescendant(pid: pid, of: panePid) {
+                // Extract session:window from target
+                let sessionWindow: String
+                if let dotIndex = targetString.lastIndex(of: ".") {
+                    sessionWindow = String(targetString[targetString.startIndex..<dotIndex])
+                } else {
+                    sessionWindow = targetString
+                }
+
+                // Select the window and pane
+                _ = shell(tmuxPath, ["select-window", "-t", sessionWindow])
+                _ = shell(tmuxPath, ["select-pane", "-t", targetString])
+                logger.debug("FOCUS: tmux switched to \(targetString, privacy: .public)")
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// Check if `pid` is a descendant of `ancestorPid` by walking up the process tree
+    private nonisolated static func isDescendant(pid: Int, of ancestorPid: Int) -> Bool {
+        var current = pid
+        var visited = Set<Int>()
+        while current > 1 && !visited.contains(current) {
+            if current == ancestorPid { return true }
+            visited.insert(current)
+            // Get parent PID
+            guard let ppidStr = shell("/bin/ps", ["-o", "ppid=", "-p", "\(current)"]),
+                  let ppid = Int(ppidStr.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  ppid > 0 else {
+                break
+            }
+            current = ppid
+        }
+        return false
+    }
+
+    // MARK: - Activate Terminal App
+
+    private nonisolated static func activateTerminalApp() {
+        // Try known terminal bundle IDs, most common first
+        for bid in TerminalAppRegistry.bundleIdentifiers {
+            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first,
+               app.activate() {
+                return
+            }
+        }
+        // Ghostty/cmux specific fallback
         for bid in ["com.mitchellh.ghostty", "com.cmuxterm.app"] {
             if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first,
                app.activate() {
