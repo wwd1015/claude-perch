@@ -412,6 +412,7 @@ struct ChatView: View {
         ChatApprovalBar(
             tool: tool,
             toolInput: session.pendingToolInput,
+            permissionContext: session.activePermission,
             onApprove: { approvePermission() },
             onDeny: { denyPermission() }
         )
