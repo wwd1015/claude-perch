@@ -39,6 +39,39 @@ enum AppSettings {
     private enum Keys {
         static let notificationSound = "notificationSound"
         static let urgentNotificationSound = "urgentNotificationSound"
+        static let soundEnabled = "soundEnabled"
+        static let soundVolume = "soundVolume"
+    }
+
+    // MARK: - Sound Settings
+
+    /// Master toggle for sound effects (opt-in, default false)
+    static var soundEnabled: Bool {
+        get {
+            // Check if the key has been explicitly set; default to false (opt-in)
+            if defaults.object(forKey: Keys.soundEnabled) == nil {
+                return false
+            }
+            return defaults.bool(forKey: Keys.soundEnabled)
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.soundEnabled)
+        }
+    }
+
+    /// Sound volume from 0.0 to 1.0 (default 0.5)
+    static var soundVolume: Float {
+        get {
+            let value = defaults.float(forKey: Keys.soundVolume)
+            // If never set, default to 0.5
+            if defaults.object(forKey: Keys.soundVolume) == nil {
+                return 0.5
+            }
+            return max(0.0, min(1.0, value))
+        }
+        set {
+            defaults.set(max(0.0, min(1.0, newValue)), forKey: Keys.soundVolume)
+        }
     }
 
     // MARK: - Notification Sounds (two-tier)

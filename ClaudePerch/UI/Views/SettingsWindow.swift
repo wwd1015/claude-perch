@@ -225,13 +225,8 @@ struct DisplaySettingsView: View {
 // MARK: - Sound Settings
 
 struct SoundSettingsView: View {
-    @AppStorage("soundEnabled") private var soundEnabled = true
-    @AppStorage("soundVolume") private var soundVolume = 0.3
-    @AppStorage("soundSessionStart") private var soundSessionStart = true
-    @AppStorage("soundTaskComplete") private var soundTaskComplete = true
-    @AppStorage("soundTaskError") private var soundTaskError = true
-    @AppStorage("soundApprovalNeeded") private var soundApprovalNeeded = true
-    @AppStorage("soundTaskAcknowledge") private var soundTaskAcknowledge = false
+    @AppStorage("soundEnabled") private var soundEnabled = false
+    @AppStorage("soundVolume") private var soundVolume: Double = 0.5
 
     var body: some View {
         Form {
@@ -244,6 +239,7 @@ struct SoundSettingsView: View {
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                     Slider(value: $soundVolume, in: 0...1)
+                        .disabled(!soundEnabled)
                     Image(systemName: "speaker.wave.3.fill")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
@@ -254,34 +250,27 @@ struct SoundSettingsView: View {
                 }
             }
 
-            Section("Session") {
-                SoundEventRow(
+            Section("Events") {
+                SoundEventPreviewRow(
                     label: "Session Start",
-                    description: "New Claude session",
-                    isEnabled: $soundSessionStart
+                    description: "New Claude session begins",
+                    soundName: SoundEvent.sessionStart.soundName,
+                    volume: Float(soundVolume),
+                    enabled: soundEnabled
                 )
-                SoundEventRow(
-                    label: "Task Complete",
-                    description: "AI finished its turn",
-                    isEnabled: $soundTaskComplete
-                )
-                SoundEventRow(
-                    label: "Task Error",
-                    description: "Tool failure or API error",
-                    isEnabled: $soundTaskError
-                )
-            }
-
-            Section("Interactions") {
-                SoundEventRow(
+                SoundEventPreviewRow(
                     label: "Approval Needed",
-                    description: "Permission or question pending",
-                    isEnabled: $soundApprovalNeeded
+                    description: "Permission request needs your attention",
+                    soundName: SoundEvent.approvalNeeded.soundName,
+                    volume: Float(soundVolume),
+                    enabled: soundEnabled
                 )
-                SoundEventRow(
-                    label: "Task Acknowledge",
-                    description: "You submitted a prompt",
-                    isEnabled: $soundTaskAcknowledge
+                SoundEventPreviewRow(
+                    label: "Task Complete",
+                    description: "Session finished processing",
+                    soundName: SoundEvent.taskComplete.soundName,
+                    volume: Float(soundVolume),
+                    enabled: soundEnabled
                 )
             }
         }
@@ -290,10 +279,12 @@ struct SoundSettingsView: View {
     }
 }
 
-struct SoundEventRow: View {
+struct SoundEventPreviewRow: View {
     let label: String
     let description: String
-    @Binding var isEnabled: Bool
+    let soundName: String
+    let volume: Float
+    let enabled: Bool
 
     var body: some View {
         HStack {
@@ -304,17 +295,21 @@ struct SoundEventRow: View {
                     .foregroundColor(.secondary)
             }
             Spacer()
+            Text(soundName)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
             Button {
-                NSSound(named: "Pop")?.play()
+                if let sound = NSSound(named: soundName) {
+                    sound.volume = volume
+                    sound.play()
+                }
             } label: {
                 Image(systemName: "play.circle.fill")
                     .font(.system(size: 20))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(enabled ? .accentColor : .secondary)
             }
             .buttonStyle(.plain)
-
-            Toggle("", isOn: $isEnabled)
-                .labelsHidden()
+            .disabled(!enabled)
         }
     }
 }
