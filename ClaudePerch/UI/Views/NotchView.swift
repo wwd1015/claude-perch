@@ -190,6 +190,18 @@ struct NotchView: View {
                             viewModel.notchOpen(reason: .click)
                         }
                     }
+                    .contextMenu {
+                        Button("Settings...") {
+                            SettingsWindowController.shared.showSettings()
+                        }
+                        Button("Check for Updates...") {
+                            updateManager.checkForUpdates()
+                        }
+                        Divider()
+                        Button("Quit Claude Perch") {
+                            NSApplication.shared.terminate(nil)
+                        }
+                    }
             }
         }
         .opacity(isVisible ? 1 : 0)
