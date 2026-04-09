@@ -67,6 +67,14 @@ struct PermissionDetailView: View {
                 writePreview
             case "Bash":
                 bashPreview
+            case "Read":
+                readPreview
+            case "Grep":
+                grepPreview
+            case "Glob":
+                globPreview
+            case "WebFetch":
+                webFetchPreview
             case "AskUserQuestion":
                 askUserQuestionView
             default:
@@ -210,6 +218,14 @@ struct PermissionDetailView: View {
     private var bashPreview: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let command = extractString("command") {
+                // Description if provided
+                if let desc = extractString("description") {
+                    Text(desc)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
+                        .lineLimit(2)
+                }
+
                 HStack(spacing: 6) {
                     Text("$")
                         .font(.system(size: 12, weight: .bold, design: .monospaced))
@@ -218,6 +234,184 @@ struct PermissionDetailView: View {
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundColor(.white.opacity(0.85))
                         .lineLimit(4)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                // Timeout if specified
+                if let timeout = extractInt("timeout") {
+                    Text("timeout: \(timeout)ms")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.3))
+                }
+            } else {
+                genericPreview
+            }
+        }
+    }
+
+    // MARK: - Read Preview
+
+    private var readPreview: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let filePath = extractString("file_path") {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 11))
+                        .foregroundColor(TerminalColors.cyan)
+                    Text(filePath)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.85))
+                        .lineLimit(2)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                // Line range if specified
+                let offset = extractInt("offset")
+                let limit = extractInt("limit")
+                if offset != nil || limit != nil {
+                    HStack(spacing: 4) {
+                        if let offset = offset, let limit = limit {
+                            Text("lines \(offset)-\(offset + limit)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.4))
+                        } else if let offset = offset {
+                            Text("from line \(offset)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.4))
+                        } else if let limit = limit {
+                            Text("first \(limit) lines")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.4))
+                        }
+                    }
+                }
+            } else {
+                genericPreview
+            }
+        }
+    }
+
+    // MARK: - Grep Preview
+
+    private var grepPreview: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let pattern = extractString("pattern") {
+                VStack(alignment: .leading, spacing: 6) {
+                    // Pattern line
+                    HStack(spacing: 6) {
+                        Text("/")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(TerminalColors.magenta)
+                        Text(pattern)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.85))
+                            .lineLimit(2)
+                        Text("/")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(TerminalColors.magenta)
+                    }
+
+                    // Search directory
+                    if let path = extractString("path") {
+                        HStack(spacing: 4) {
+                            Text("in")
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.4))
+                            Text(path)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.6))
+                                .lineLimit(1)
+                        }
+                    }
+
+                    // Glob filter if specified
+                    if let glob = extractString("glob") {
+                        HStack(spacing: 4) {
+                            Text("glob")
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.4))
+                            Text(glob)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.6))
+                        }
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                genericPreview
+            }
+        }
+    }
+
+    // MARK: - Glob Preview
+
+    private var globPreview: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let pattern = extractString("pattern") {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 11))
+                            .foregroundColor(TerminalColors.blue)
+                        Text(pattern)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.85))
+                            .lineLimit(2)
+                    }
+
+                    if let path = extractString("path") {
+                        HStack(spacing: 4) {
+                            Text("in")
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.4))
+                            Text(path)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.6))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                genericPreview
+            }
+        }
+    }
+
+    // MARK: - WebFetch Preview
+
+    private var webFetchPreview: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let url = extractString("url") {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "globe")
+                            .font(.system(size: 11))
+                            .foregroundColor(TerminalColors.cyan)
+                        Text(url)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.85))
+                            .lineLimit(2)
+                    }
+
+                    if let prompt = extractString("prompt") {
+                        Text(prompt)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.5))
+                            .lineLimit(2)
+                    }
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -314,6 +508,14 @@ struct PermissionDetailView: View {
               let codable = input[key],
               let str = codable.value as? String else { return nil }
         return str
+    }
+
+    private func extractInt(_ key: String) -> Int? {
+        guard let input = context.toolInput,
+              let codable = input[key] else { return nil }
+        if let intVal = codable.value as? Int { return intVal }
+        if let doubleVal = codable.value as? Double { return Int(doubleVal) }
+        return nil
     }
 
     private func extractQuestionText() -> String? {

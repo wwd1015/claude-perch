@@ -77,12 +77,58 @@ struct ChatInteractivePromptBar: View {
 struct ChatApprovalBar: View {
     let tool: String
     let toolInput: String?
+    let permissionContext: PermissionContext?
     let onApprove: () -> Void
     let onDeny: () -> Void
+
+    init(tool: String, toolInput: String?, permissionContext: PermissionContext? = nil, onApprove: @escaping () -> Void, onDeny: @escaping () -> Void) {
+        self.tool = tool
+        self.toolInput = toolInput
+        self.permissionContext = permissionContext
+        self.onApprove = onApprove
+        self.onDeny = onDeny
+    }
 
     @State private var showContent = false
     @State private var showAllowButton = false
     @State private var showDenyButton = false
+
+    /// Rich one-line summary based on tool type
+    private var toolSummary: String? {
+        if let ctx = permissionContext, let input = ctx.toolInput {
+            switch tool {
+            case "Bash":
+                if let cmd = (input["command"]?.value as? String) {
+                    return "$ " + cmd
+                }
+            case "Grep":
+                let pattern = input["pattern"]?.value as? String ?? ""
+                let path = input["path"]?.value as? String
+                if let path = path {
+                    return "/\(pattern)/ in \(path)"
+                }
+                return "/\(pattern)/"
+            case "Glob":
+                let pattern = input["pattern"]?.value as? String ?? ""
+                let path = input["path"]?.value as? String
+                if let path = path {
+                    return "\(pattern) in \(path)"
+                }
+                return pattern
+            case "Read":
+                return input["file_path"]?.value as? String
+            case "Write":
+                return input["file_path"]?.value as? String
+            case "Edit":
+                return input["file_path"]?.value as? String
+            case "WebFetch":
+                return input["url"]?.value as? String
+            default:
+                break
+            }
+        }
+        return toolInput
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -91,9 +137,9 @@ struct ChatApprovalBar: View {
                 Text(MCPToolFormatter.formatToolName(tool))
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundColor(TerminalColors.amber)
-                if let input = toolInput {
-                    Text(input)
-                        .font(.system(size: 11))
+                if let summary = toolSummary {
+                    Text(summary)
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.white.opacity(0.5))
                         .lineLimit(1)
                 }
