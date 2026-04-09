@@ -41,6 +41,7 @@ enum AppSettings {
         static let urgentNotificationSound = "urgentNotificationSound"
         static let soundEnabled = "soundEnabled"
         static let soundVolume = "soundVolume"
+        static let claudeConfigPath = "claudeConfigPath"
     }
 
     // MARK: - Sound Settings
@@ -48,7 +49,6 @@ enum AppSettings {
     /// Master toggle for sound effects (opt-in, default false)
     static var soundEnabled: Bool {
         get {
-            // Check if the key has been explicitly set; default to false (opt-in)
             if defaults.object(forKey: Keys.soundEnabled) == nil {
                 return false
             }
@@ -63,7 +63,6 @@ enum AppSettings {
     static var soundVolume: Float {
         get {
             let value = defaults.float(forKey: Keys.soundVolume)
-            // If never set, default to 0.5
             if defaults.object(forKey: Keys.soundVolume) == nil {
                 return 0.5
             }
@@ -71,6 +70,68 @@ enum AppSettings {
         }
         set {
             defaults.set(max(0.0, min(1.0, newValue)), forKey: Keys.soundVolume)
+        }
+    }
+
+    // MARK: - Claude Config Path
+
+    static let defaultClaudeConfigPath = "~/.claude"
+
+    /// The raw config path as stored (may contain ~)
+    static var claudeConfigPath: String {
+        get {
+            defaults.string(forKey: Keys.claudeConfigPath) ?? defaultClaudeConfigPath
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.claudeConfigPath)
+        }
+    }
+
+    /// The resolved absolute path (~ expanded)
+    static var resolvedClaudeConfigPath: String {
+        (claudeConfigPath as NSString).expandingTildeInPath
+    }
+
+    /// URL for the Claude config directory
+    static var claudeConfigURL: URL {
+        URL(fileURLWithPath: resolvedClaudeConfigPath)
+    }
+
+    /// Path to settings.json inside the Claude config directory
+    static var claudeSettingsURL: URL {
+        claudeConfigURL.appendingPathComponent("settings.json")
+    }
+
+    /// Path to the projects directory inside the Claude config directory
+    static var claudeProjectsPath: String {
+        resolvedClaudeConfigPath + "/projects"
+    }
+
+    /// Path to the legacy hooks directory
+    static var claudeHooksPath: String {
+        resolvedClaudeConfigPath + "/hooks"
+    }
+
+    /// Reset the config path to default
+    static func resetClaudeConfigPath() {
+        defaults.removeObject(forKey: Keys.claudeConfigPath)
+    }
+
+    /// Validate that a path looks like a valid Claude config directory
+    static func validateClaudeConfigPath(_ path: String) -> (isValid: Bool, message: String) {
+        let resolved = (path as NSString).expandingTildeInPath
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+
+        guard fm.fileExists(atPath: resolved, isDirectory: &isDir), isDir.boolValue else {
+            return (false, "Directory does not exist")
+        }
+
+        let settingsFile = resolved + "/settings.json"
+        if fm.fileExists(atPath: settingsFile) {
+            return (true, "Valid Claude config directory")
+        } else {
+            return (true, "Directory exists but settings.json not found (hooks will be created)")
         }
     }
 

@@ -90,6 +90,8 @@ struct GeneralSettingsView: View {
     @AppStorage("autoCollapse") private var autoCollapse = true
     @AppStorage("showUsage") private var showUsage = false
     @State private var showUninstallConfirmation = false
+    @State private var configPath = AppSettings.claudeConfigPath
+    @State private var configPathValidation: (isValid: Bool, message: String) = (true, "")
 
     var body: some View {
         Form {
@@ -134,6 +136,63 @@ struct GeneralSettingsView: View {
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                 }
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Claude Config Path")
+                    Text("Override if Claude Code uses a non-default config directory (e.g. enterprise installs). Hooks will be re-installed to the new location.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    HStack {
+                        TextField("~/.claude", text: $configPath)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit {
+                                applyConfigPath()
+                            }
+
+                        Button("Browse...") {
+                            let panel = NSOpenPanel()
+                            panel.canChooseFiles = false
+                            panel.canChooseDirectories = true
+                            panel.allowsMultipleSelection = false
+                            panel.directoryURL = URL(fileURLWithPath: AppSettings.resolvedClaudeConfigPath)
+                            if panel.runModal() == .OK, let url = panel.url {
+                                configPath = url.path
+                                applyConfigPath()
+                            }
+                        }
+
+                        if configPath != AppSettings.defaultClaudeConfigPath {
+                            Button("Reset") {
+                                configPath = AppSettings.defaultClaudeConfigPath
+                                applyConfigPath()
+                            }
+                        }
+                    }
+
+                    HStack(spacing: 4) {
+                        if !configPathValidation.message.isEmpty {
+                            Image(systemName: configPathValidation.isValid ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundColor(configPathValidation.isValid ? .green : .orange)
+                            Text(configPathValidation.message)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Text((configPath as NSString).expandingTildeInPath)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            } header: {
+                Text("Advanced")
             }
 
             Section("Behaviour") {
@@ -184,6 +243,25 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("General")
+        .onAppear {
+            configPath = AppSettings.claudeConfigPath
+            configPathValidation = AppSettings.validateClaudeConfigPath(configPath)
+        }
+    }
+
+    private func applyConfigPath() {
+        let trimmed = configPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        configPath = trimmed.isEmpty ? AppSettings.defaultClaudeConfigPath : trimmed
+        configPathValidation = AppSettings.validateClaudeConfigPath(configPath)
+
+        let oldPath = AppSettings.claudeConfigPath
+        AppSettings.claudeConfigPath = configPath
+
+        if oldPath != configPath {
+            // Re-install hooks at the new location
+            HookInstaller.installIfNeeded()
+            hooksInstalled = HookInstaller.isInstalled()
+        }
     }
 }
 
