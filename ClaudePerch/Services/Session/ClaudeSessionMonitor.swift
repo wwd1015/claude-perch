@@ -265,7 +265,7 @@ class ClaudeSessionMonitor: ObservableObject {
     private func discoverExistingSessions() {
         Task.detached(priority: .userInitiated) {
             let fileManager = FileManager.default
-            let projectsDir = NSHomeDirectory() + "/.claude/projects"
+            let projectsDir = AppSettings.claudeProjectsPath
 
             guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsDir) else { return }
 

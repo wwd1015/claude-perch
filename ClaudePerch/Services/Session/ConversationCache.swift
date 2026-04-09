@@ -70,7 +70,7 @@ extension ConversationParser {
     /// Uses caching based on file modification time
     func parse(sessionId: String, cwd: String) -> ConversationInfo {
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        let sessionFile = NSHomeDirectory() + "/.claude/projects/" + projectDir + "/" + sessionId + ".jsonl"
+        let sessionFile = AppSettings.claudeProjectsPath + "/" + projectDir + "/" + sessionId + ".jsonl"
 
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: sessionFile),
@@ -128,6 +128,6 @@ extension ConversationParser {
     /// Build session file path
     static func sessionFilePath(sessionId: String, cwd: String) -> String {
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        return NSHomeDirectory() + "/.claude/projects/" + projectDir + "/" + sessionId + ".jsonl"
+        return AppSettings.claudeProjectsPath + "/" + projectDir + "/" + sessionId + ".jsonl"
     }
 }

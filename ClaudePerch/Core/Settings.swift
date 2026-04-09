@@ -39,6 +39,69 @@ enum AppSettings {
     private enum Keys {
         static let notificationSound = "notificationSound"
         static let urgentNotificationSound = "urgentNotificationSound"
+        static let claudeConfigPath = "claudeConfigPath"
+    }
+
+    // MARK: - Claude Config Path
+
+    static let defaultClaudeConfigPath = "~/.claude"
+
+    /// The raw config path as stored (may contain ~)
+    static var claudeConfigPath: String {
+        get {
+            defaults.string(forKey: Keys.claudeConfigPath) ?? defaultClaudeConfigPath
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.claudeConfigPath)
+        }
+    }
+
+    /// The resolved absolute path (~ expanded)
+    static var resolvedClaudeConfigPath: String {
+        (claudeConfigPath as NSString).expandingTildeInPath
+    }
+
+    /// URL for the Claude config directory
+    static var claudeConfigURL: URL {
+        URL(fileURLWithPath: resolvedClaudeConfigPath)
+    }
+
+    /// Path to settings.json inside the Claude config directory
+    static var claudeSettingsURL: URL {
+        claudeConfigURL.appendingPathComponent("settings.json")
+    }
+
+    /// Path to the projects directory inside the Claude config directory
+    static var claudeProjectsPath: String {
+        resolvedClaudeConfigPath + "/projects"
+    }
+
+    /// Path to the legacy hooks directory
+    static var claudeHooksPath: String {
+        resolvedClaudeConfigPath + "/hooks"
+    }
+
+    /// Reset the config path to default
+    static func resetClaudeConfigPath() {
+        defaults.removeObject(forKey: Keys.claudeConfigPath)
+    }
+
+    /// Validate that a path looks like a valid Claude config directory
+    static func validateClaudeConfigPath(_ path: String) -> (isValid: Bool, message: String) {
+        let resolved = (path as NSString).expandingTildeInPath
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+
+        guard fm.fileExists(atPath: resolved, isDirectory: &isDir), isDir.boolValue else {
+            return (false, "Directory does not exist")
+        }
+
+        let settingsFile = resolved + "/settings.json"
+        if fm.fileExists(atPath: settingsFile) {
+            return (true, "Valid Claude config directory")
+        } else {
+            return (true, "Directory exists but settings.json not found (hooks will be created)")
+        }
     }
 
     // MARK: - Notification Sounds (two-tier)

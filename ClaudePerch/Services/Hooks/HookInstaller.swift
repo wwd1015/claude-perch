@@ -25,8 +25,7 @@ struct HookInstaller {
 
     /// Verify hooks are up-to-date and repair if stale or missing
     static func verifyAndRepair() {
-        let settings = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/settings.json")
+        let settings = AppSettings.claudeSettingsURL
 
         guard let data = try? Data(contentsOf: settings),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -63,12 +62,11 @@ struct HookInstaller {
     /// Install hooks by registering the bundled script directly in settings.json.
     /// No files are copied — the command points straight to the app bundle.
     static func installIfNeeded() {
-        let settings = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/settings.json")
+        let settings = AppSettings.claudeSettingsURL
 
         // Clean up legacy launcher script if it exists
-        let legacyScript = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/hooks/claude-perch-state.py")
+        let legacyScript = URL(fileURLWithPath: AppSettings.claudeHooksPath)
+            .appendingPathComponent("claude-perch-state.py")
         if FileManager.default.fileExists(atPath: legacyScript.path) {
             try? FileManager.default.removeItem(at: legacyScript)
         }
@@ -82,8 +80,8 @@ struct HookInstaller {
         uninstall()
 
         // 2. Remove legacy hook script if it exists
-        let legacyScript = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/hooks/claude-perch-state.py")
+        let legacyScript = URL(fileURLWithPath: AppSettings.claudeHooksPath)
+            .appendingPathComponent("claude-perch-state.py")
         try? FileManager.default.removeItem(at: legacyScript)
 
         // 3. Remove the socket
@@ -182,9 +180,7 @@ struct HookInstaller {
 
     /// Check if hooks are currently installed
     static func isInstalled() -> Bool {
-        let claudeDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude")
-        let settings = claudeDir.appendingPathComponent("settings.json")
+        let settings = AppSettings.claudeSettingsURL
 
         guard let data = try? Data(contentsOf: settings),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -211,12 +207,11 @@ struct HookInstaller {
 
     /// Uninstall hooks from settings.json and remove legacy script
     static func uninstall() {
-        let claudeDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude")
-        let settings = claudeDir.appendingPathComponent("settings.json")
+        let settings = AppSettings.claudeSettingsURL
 
         // Clean up legacy launcher script
-        let legacyScript = claudeDir.appendingPathComponent("hooks/claude-perch-state.py")
+        let legacyScript = URL(fileURLWithPath: AppSettings.claudeHooksPath)
+            .appendingPathComponent("claude-perch-state.py")
         try? FileManager.default.removeItem(at: legacyScript)
 
         guard let data = try? Data(contentsOf: settings),

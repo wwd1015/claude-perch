@@ -151,8 +151,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func fetchAndRegisterClaudeVersion() {
-        let claudeProjectsDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/projects")
+        let claudeProjectsDir = URL(fileURLWithPath: AppSettings.claudeProjectsPath)
 
         guard let projectDirs = try? FileManager.default.contentsOfDirectory(
             at: claudeProjectsDir,
