@@ -121,6 +121,8 @@ struct ClaudeInstancesView: View {
                 sessionSummary: session.summary ?? session.windowHint ?? session.firstUserMessage
             )
         }
+        // Close the notch after jumping to terminal
+        viewModel.notchClose()
     }
 
     private func openChat(_ session: SessionState) {
@@ -232,10 +234,6 @@ struct InstanceRow: View {
 
                     subtitleView
                 }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    onFocus()
-                }
 
                 Spacer(minLength: 0)
 
@@ -267,6 +265,21 @@ struct InstanceRow: View {
                             .foregroundColor(.white.opacity(0.4))
                     }
 
+                    // Jump to terminal button (visible on hover)
+                    if isHovered {
+                        Button { onFocus() } label: {
+                            Image(systemName: "terminal")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.white.opacity(0.6))
+                                .frame(width: 22, height: 22)
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.opacity)
+                        .help("Jump to terminal")
+                    }
+
                     // Archive button (visible on hover)
                     if isHovered {
                         Button { onArchive() } label: {
@@ -285,6 +298,10 @@ struct InstanceRow: View {
             .padding(.leading, 8)
             .padding(.trailing, 14)
             .padding(.vertical, 10)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onFocus()
+            }
 
             // Expanded permission detail (inline diff, question buttons)
             if isWaitingForApproval, let permContext = session.activePermission {
