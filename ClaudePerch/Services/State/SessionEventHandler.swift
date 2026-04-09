@@ -19,9 +19,10 @@ extension SessionStore {
         let isNewSession = sessions[sessionId] == nil
         var session = sessions[sessionId] ?? createSession(from: event)
 
-        // Track new session in Mixpanel
+        // Track new session in Mixpanel and play sound
         if isNewSession {
             trackSessionStarted()
+            SoundManager.shared.play(.sessionStart)
         }
 
         session.pid = event.pid
@@ -45,10 +46,14 @@ extension SessionStore {
             return
         }
 
+        let oldPhase = session.phase
         let newPhase = event.determinePhase()
 
         if session.phase.canTransition(to: newPhase) {
             session.phase = newPhase
+
+            // Play sounds based on phase transitions
+            triggerPhaseTransitionSound(from: oldPhase, to: newPhase)
         } else {
             Self.logger.debug("Invalid transition: \(String(describing: session.phase), privacy: .public) -> \(String(describing: newPhase), privacy: .public), ignoring")
         }
@@ -458,5 +463,24 @@ extension SessionStore {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.date(from: str)
+    }
+
+    // MARK: - Sound Triggers
+
+    /// Play a sound effect based on session phase transitions
+    func triggerPhaseTransitionSound(from oldPhase: SessionPhase, to newPhase: SessionPhase) {
+        switch (oldPhase, newPhase) {
+        case (_, .waitingForApproval):
+            // Approval needed - attention-getting sound
+            SoundManager.shared.play(.approvalNeeded)
+
+        case (.processing, .waitingForInput),
+             (.processing, .idle):
+            // Task completed - processing finished
+            SoundManager.shared.play(.taskComplete)
+
+        default:
+            break
+        }
     }
 }
