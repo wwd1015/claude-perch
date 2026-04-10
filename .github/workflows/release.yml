@@ -3,6 +3,7 @@ name: Build and Release
 on:
   release:
     types: [created]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,9 +23,11 @@ jobs:
         run: |
           VERSION=$(grep 'MARKETING_VERSION' ClaudePerch.xcodeproj/project.pbxproj | head -1 | tr -d ' ;' | cut -d= -f2)
           BUILD=$(grep 'CURRENT_PROJECT_VERSION' ClaudePerch.xcodeproj/project.pbxproj | head -1 | tr -d ' ;' | cut -d= -f2)
+          TAG="v${VERSION}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "build=$BUILD" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION (build $BUILD)"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION (build $BUILD) tag: $TAG"
 
       - name: Build release archive
         run: |
@@ -39,23 +42,6 @@ jobs:
 
       - name: Export app
         run: |
-          # Create export options for unsigned build
-          cat > build/ExportOptions.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>mac-application</string>
-              <key>signingStyle</key>
-              <string>manual</string>
-              <key>signingCertificate</key>
-              <string>-</string>
-          </dict>
-          </plist>
-          EOF
-
-          # Extract .app directly from archive
           cp -R "build/ClaudePerch.xcarchive/Products/Applications/Claude Perch.app" "build/"
 
       - name: Create DMG
@@ -81,13 +67,14 @@ jobs:
       - name: Generate Sparkle appcast
         run: |
           VERSION=${{ steps.version.outputs.version }}
+          BUILD=${{ steps.version.outputs.build }}
+          TAG=${{ steps.version.outputs.tag }}
           DMG="build/ClaudePerch-${VERSION}.dmg"
           DMG_SIZE=$(stat -f%z "$DMG")
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/ClaudePerch-${VERSION}.dmg"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/ClaudePerch-${VERSION}.dmg"
           PUB_DATE=$(date -u '+%a, %d %b %Y %H:%M:%S +0000')
 
           mkdir -p build/appcast
-
           cat > build/appcast/appcast.xml << EOF
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -99,9 +86,9 @@ jobs:
               <item>
                 <title>Version ${VERSION}</title>
                 <pubDate>${PUB_DATE}</pubDate>
-                <sparkle:version>${{ steps.version.outputs.build }}</sparkle:version>
+                <sparkle:version>${BUILD}</sparkle:version>
                 <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
-                <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+                <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
                 <enclosure
                   url="${DOWNLOAD_URL}"
                   length="${DMG_SIZE}"
@@ -117,17 +104,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          gh release upload "${{ github.event.release.tag_name }}" \
-            "build/ClaudePerch-${VERSION}.dmg" \
-            --clobber
+          TAG=${{ steps.version.outputs.tag }}
+          # Create release if it doesn't exist (workflow_dispatch case)
+          gh release view "$TAG" --repo ${{ github.repository }} 2>/dev/null || \
+            gh release create "$TAG" --repo ${{ github.repository }} --title "Claude Perch $TAG" --notes "Auto-built release"
+          gh release upload "$TAG" "build/ClaudePerch-${VERSION}.dmg" --repo ${{ github.repository }} --clobber
 
       - name: Deploy appcast to GitHub Pages
         run: |
-          # Configure git for Pages deploy
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Check if gh-pages branch exists
           if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
             git fetch origin gh-pages
             git checkout gh-pages
@@ -136,12 +123,8 @@ jobs:
             git rm -rf . 2>/dev/null || true
           fi
 
-          # Copy appcast
           cp build/appcast/appcast.xml appcast.xml
-
           git add appcast.xml
-          git commit -m "Update appcast for ${{ github.event.release.tag_name }}" || true
+          git commit -m "Update appcast for ${{ steps.version.outputs.tag }}" || true
           git push origin gh-pages
-
-          # Switch back
           git checkout -
