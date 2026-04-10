@@ -42,6 +42,7 @@ enum AppSettings {
         static let soundEnabled = "soundEnabled"
         static let soundVolume = "soundVolume"
         static let claudeConfigPath = "claudeConfigPath"
+        static let usageDisplayMode = "usageDisplayMode"
     }
 
     // MARK: - Sound Settings
@@ -62,15 +63,31 @@ enum AppSettings {
     /// Sound volume from 0.0 to 1.0 (default 0.5)
     static var soundVolume: Float {
         get {
-            let value = defaults.float(forKey: Keys.soundVolume)
             if defaults.object(forKey: Keys.soundVolume) == nil {
                 return 0.5
             }
-            return max(0.0, min(1.0, value))
+            return max(0.0, min(1.0, Float(defaults.double(forKey: Keys.soundVolume))))
         }
         set {
-            defaults.set(max(0.0, min(1.0, newValue)), forKey: Keys.soundVolume)
+            defaults.set(Double(max(0.0, min(1.0, newValue))), forKey: Keys.soundVolume)
         }
+    }
+
+    // MARK: - Usage Display Mode
+
+    /// Whether to show "remaining" or "used" in the usage bar
+    /// "remaining" (default) or "used"
+    static var usageDisplayMode: String {
+        get {
+            defaults.string(forKey: Keys.usageDisplayMode) ?? "remaining"
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.usageDisplayMode)
+        }
+    }
+
+    static var showUsageAsRemaining: Bool {
+        usageDisplayMode == "remaining"
     }
 
     // MARK: - Claude Config Path

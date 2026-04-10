@@ -1,0 +1,147 @@
+name: Build and Release
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(grep 'MARKETING_VERSION' ClaudePerch.xcodeproj/project.pbxproj | head -1 | tr -d ' ;' | cut -d= -f2)
+          BUILD=$(grep 'CURRENT_PROJECT_VERSION' ClaudePerch.xcodeproj/project.pbxproj | head -1 | tr -d ' ;' | cut -d= -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build=$BUILD" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION (build $BUILD)"
+
+      - name: Build release archive
+        run: |
+          xcodebuild archive \
+            -scheme ClaudePerch \
+            -configuration Release \
+            -archivePath build/ClaudePerch.xcarchive \
+            -destination "generic/platform=macOS" \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Export app
+        run: |
+          # Create export options for unsigned build
+          cat > build/ExportOptions.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>mac-application</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>-</string>
+          </dict>
+          </plist>
+          EOF
+
+          # Extract .app directly from archive
+          cp -R "build/ClaudePerch.xcarchive/Products/Applications/Claude Perch.app" "build/"
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg || true
+          VERSION=${{ steps.version.outputs.version }}
+
+          create-dmg \
+            --volname "Claude Perch" \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Claude Perch.app" 150 200 \
+            --app-drop-link 450 200 \
+            --hide-extension "Claude Perch.app" \
+            --no-internet-enable \
+            "build/ClaudePerch-${VERSION}.dmg" \
+            "build/Claude Perch.app" || \
+          hdiutil create -volname "Claude Perch" \
+            -srcfolder "build/Claude Perch.app" \
+            -ov -format UDZO \
+            "build/ClaudePerch-${VERSION}.dmg"
+
+      - name: Generate Sparkle appcast
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          DMG="build/ClaudePerch-${VERSION}.dmg"
+          DMG_SIZE=$(stat -f%z "$DMG")
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/ClaudePerch-${VERSION}.dmg"
+          PUB_DATE=$(date -u '+%a, %d %b %Y %H:%M:%S +0000')
+
+          mkdir -p build/appcast
+
+          cat > build/appcast/appcast.xml << EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <channel>
+              <title>Claude Perch Updates</title>
+              <link>https://github.com/${{ github.repository }}</link>
+              <description>Most recent changes with links to updates.</description>
+              <language>en</language>
+              <item>
+                <title>Version ${VERSION}</title>
+                <pubDate>${PUB_DATE}</pubDate>
+                <sparkle:version>${{ steps.version.outputs.build }}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+                <enclosure
+                  url="${DOWNLOAD_URL}"
+                  length="${DMG_SIZE}"
+                  type="application/octet-stream"
+                />
+              </item>
+            </channel>
+          </rss>
+          EOF
+
+      - name: Upload DMG to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "build/ClaudePerch-${VERSION}.dmg" \
+            --clobber
+
+      - name: Deploy appcast to GitHub Pages
+        run: |
+          # Configure git for Pages deploy
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Check if gh-pages branch exists
+          if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+            git fetch origin gh-pages
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+            git rm -rf . 2>/dev/null || true
+          fi
+
+          # Copy appcast
+          cp build/appcast/appcast.xml appcast.xml
+
+          git add appcast.xml
+          git commit -m "Update appcast for ${{ github.event.release.tag_name }}" || true
+          git push origin gh-pages
+
+          # Switch back
+          git checkout -

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import ServiceManagement
+import Sparkle
 
 // MARK: - Settings Tab
 
@@ -75,6 +76,7 @@ struct SettingsWindowView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar(.hidden)
         .frame(width: 650, height: 500)
     }
 }
@@ -219,6 +221,18 @@ struct GeneralSettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+
+                if showUsage {
+                    Picker("Display as", selection: Binding(
+                        get: { AppSettings.usageDisplayMode },
+                        set: { AppSettings.usageDisplayMode = $0 }
+                    )) {
+                        Text("Remaining").tag("remaining")
+                        Text("Used").tag("used")
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.leading, 20)
+                }
             }
 
             Section("Danger Zone") {
@@ -277,6 +291,9 @@ struct DisplaySettingsView: View {
         Form {
             Section("Screen") {
                 ScreenPickerRow(screenSelector: screenSelector)
+                    .padding(4)
+                    .background(Color.black.opacity(0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
             Section("Notch Panel") {
@@ -296,7 +313,6 @@ struct DisplaySettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Display")
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -453,10 +469,14 @@ struct ShortcutRow: View {
 // MARK: - About Settings
 
 struct AboutSettingsView: View {
+    @State private var autoCheckUpdates: Bool = AppDelegate.shared?.updater.automaticallyChecksForUpdates ?? true
+
     private var appVersion: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "v\(version) (\(build))"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
+    private var buildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
     }
 
     var body: some View {
@@ -465,17 +485,43 @@ struct AboutSettingsView: View {
                 VStack(spacing: 12) {
                     Text("Claude Perch")
                         .font(.title2.bold())
-                    Text(appVersion)
+                    Text("v\(appVersion) (build \(buildNumber))")
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundColor(.secondary)
                     Text("Mission Control for your AI agents")
+                        .foregroundColor(.secondary)
+                    Text("by Alan Wang")
+                        .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 20)
             }
 
+            Section("Updates") {
+                Toggle("Automatically check for updates", isOn: Binding(
+                    get: { autoCheckUpdates },
+                    set: { newValue in
+                        autoCheckUpdates = newValue
+                        AppDelegate.shared?.updater.automaticallyChecksForUpdates = newValue
+                    }
+                ))
+
+                Button("Check for Updates Now...") {
+                    UpdateManager.shared.checkForUpdates()
+                }
+            }
+
             Section {
-                Link("GitHub Repository", destination: URL(string: "https://github.com/wwd1015/claude-perch")!)
+                Link(destination: URL(string: "https://github.com/wwd1015/claude-perch")!) {
+                    HStack {
+                        Text("GitHub Repository")
+                        Spacer()
+                        Text("wwd1015/claude-perch")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
 
                 HStack {
                     Text("Accessibility")

@@ -46,19 +46,26 @@ final class SoundManager: @unchecked Sendable {
 
     /// Whether the app has finished its initial launch phase
     /// Set to true after a short delay to avoid startup noise
+    /// Protected by `lock` for thread safety
     private var hasFinishedLaunching = false
 
     private init() {
         // Delay enabling sounds to avoid startup noise
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-            self?.hasFinishedLaunching = true
+            guard let self else { return }
+            self.lock.lock()
+            self.hasFinishedLaunching = true
+            self.lock.unlock()
             Self.logger.debug("SoundManager ready (startup grace period ended)")
         }
     }
 
     /// Play a sound for the given event, respecting settings and cooldown
     func play(_ event: SoundEvent) {
-        guard hasFinishedLaunching else {
+        lock.lock()
+        let launched = hasFinishedLaunching
+        lock.unlock()
+        guard launched else {
             Self.logger.debug("Skipping sound \(event.soundName, privacy: .public) (startup grace period)")
             return
         }

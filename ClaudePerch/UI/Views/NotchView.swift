@@ -301,7 +301,7 @@ struct NotchView: View {
                 } else if session.phase == .waitingForInput {
                     Text("Ready")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(TerminalColors.green)
+                        .foregroundColor(TerminalColors.sessionColor(for: session.sessionId))
                 } else if session.phase.isWaitingForApproval {
                     Text("Approval needed")
                         .font(.system(size: 10, weight: .medium))
@@ -355,13 +355,18 @@ struct NotchView: View {
                     Rectangle().fill(.black)
                         .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top)
 
+                    let doneColor = sessionMonitor.instances
+                        .first(where: { $0.phase == .waitingForInput })
+                        .map { TerminalColors.sessionColor(for: $0.sessionId) }
+                        ?? TerminalColors.green
+
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(TerminalColors.green)
+                        .foregroundColor(doneColor)
 
                     Text("Done")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(TerminalColors.green)
+                        .foregroundColor(doneColor)
                 }
             } else {
                 // Closed with activity: black spacer (with optional bounce)

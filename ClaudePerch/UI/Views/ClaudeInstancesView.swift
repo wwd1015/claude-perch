@@ -173,7 +173,10 @@ struct InstanceRow: View {
     @AppStorage("showTimeActive") private var showTimeActive = true
     @AppStorage("showAgentBadge") private var showAgentBadge = true
 
-    private let claudeOrange = Color(red: 0.85, green: 0.47, blue: 0.34)
+    /// Per-session accent color derived from session ID
+    private var sessionColor: Color {
+        TerminalColors.sessionColor(for: session.sessionId)
+    }
     private let spinnerSymbols = ["·", "✢", "✳", "∗", "✻", "✽"]
     private let spinnerTimer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
 
@@ -219,7 +222,14 @@ struct InstanceRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 0) {
+            // Left accent bar — per-session color
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(sessionColor.opacity(session.phase == .idle || session.phase == .ended ? 0.3 : 0.8))
+                .frame(width: 3)
+                .padding(.vertical, 6)
+
+            VStack(alignment: .leading, spacing: 0) {
             // Main row: pixel icon + title + badges
             HStack(alignment: .center, spacing: 10) {
                 SessionPixelIcon(sessionId: session.sessionId, phase: session.phase)
@@ -263,21 +273,6 @@ struct InstanceRow: View {
                         Text(time)
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.white.opacity(0.4))
-                    }
-
-                    // Jump to terminal button (visible on hover)
-                    if isHovered {
-                        Button { onFocus() } label: {
-                            Image(systemName: "terminal")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(.white.opacity(0.6))
-                                .frame(width: 22, height: 22)
-                                .background(Color.white.opacity(0.1))
-                                .clipShape(RoundedRectangle(cornerRadius: 4))
-                        }
-                        .buttonStyle(.plain)
-                        .transition(.opacity)
-                        .help("Jump to terminal")
                     }
 
                     // Archive button (visible on hover)
@@ -331,7 +326,8 @@ struct InstanceRow: View {
                 .padding(.bottom, 8)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
-        }
+            }
+        } // end HStack with accent bar
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
         .background(
             RoundedRectangle(cornerRadius: 12)
@@ -340,19 +336,17 @@ struct InstanceRow: View {
         .onHover { isHovered = $0 }
     }
 
-    /// Row background color based on state
+    /// Row background color based on state, tinted with session color
     private var rowBackground: Color {
         if session.phase == .waitingForInput {
-            // Green tint for "Done" state like Vibe Island
-            return isHovered ? TerminalColors.green.opacity(0.12) : TerminalColors.green.opacity(0.06)
+            return isHovered ? sessionColor.opacity(0.12) : sessionColor.opacity(0.06)
         }
         return isHovered ? Color.white.opacity(0.06) : Color.clear
     }
 
     // MARK: - Subtitle (matches Vibe Island: user msg gray + activity blue)
 
-    /// Accent color for live activity text (green like Vibe Island)
-    private let activityGreen = Color(red: 0.3, green: 0.8, blue: 0.4)
+    /// Accent color for live activity text — uses session color
 
     @ViewBuilder
     private var subtitleView: some View {
@@ -387,7 +381,7 @@ struct InstanceRow: View {
                 }
                 Text("Ready")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(TerminalColors.green)
+                    .foregroundColor(sessionColor)
             }
         } else {
             // Active or idle: show both user msg + assistant msg like Vibe Island
@@ -405,7 +399,7 @@ struct InstanceRow: View {
                     if let toolName = session.lastToolName, let toolInput = session.lastMessage {
                         Text("\(MCPToolFormatter.formatToolName(toolName)) \(toolInput)")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(activityGreen)
+                            .foregroundColor(sessionColor)
                             .lineLimit(1)
                     }
                 } else if let msg = session.lastMessage {
@@ -428,7 +422,7 @@ struct InstanceRow: View {
         case .processing, .compacting:
             Text(spinnerSymbols[spinnerPhase % spinnerSymbols.count])
                 .font(.system(size: 12, weight: .bold))
-                .foregroundColor(claudeOrange)
+                .foregroundColor(sessionColor)
                 .onReceive(spinnerTimer) { _ in
                     spinnerPhase = (spinnerPhase + 1) % spinnerSymbols.count
                 }
@@ -441,11 +435,11 @@ struct InstanceRow: View {
                 }
         case .waitingForInput:
             Circle()
-                .fill(TerminalColors.green)
+                .fill(sessionColor)
                 .frame(width: 6, height: 6)
         case .idle, .ended:
             Circle()
-                .fill(Color.white.opacity(0.2))
+                .fill(sessionColor.opacity(0.3))
                 .frame(width: 6, height: 6)
         }
     }

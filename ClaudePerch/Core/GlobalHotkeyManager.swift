@@ -33,11 +33,10 @@ class GlobalHotkeyManager {
     private init() {}
 
     func start() {
-        // Request Accessibility permission if not granted
+        // Check Accessibility permission silently — don't prompt on every launch.
+        // The user can grant access via Settings > About or System Settings.
         if !AXIsProcessTrusted() {
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
-            logger.warning("Accessibility not granted — prompting user.")
+            logger.warning("Accessibility not granted — hotkeys may not work. User can enable in Settings > About.")
         }
 
         setupEventTap()

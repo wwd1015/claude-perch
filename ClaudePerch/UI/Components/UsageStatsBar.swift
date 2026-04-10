@@ -47,13 +47,16 @@ struct UsageStatsBar: View {
     var body: some View {
         if let usage = resolvedUsage {
             let remaining = max(0, 100 - usage.fiveHourUsedPercent)
+            let showRemaining = AppSettings.showUsageAsRemaining
+            let displayPercent = showRemaining ? remaining : usage.fiveHourUsedPercent
+            let displayLabel = showRemaining ? "left" : "used"
 
             HStack(spacing: 6) {
                 // Compact progress bar
                 usageBar(remaining: remaining)
 
                 // Percentage label
-                Text("\(Int(remaining))%")
+                Text("\(Int(displayPercent))% \(displayLabel)")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(colorForRemaining(remaining))
 

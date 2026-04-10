@@ -19,4 +19,22 @@ struct TerminalColors {
     static let prompt = Color(red: 0.85, green: 0.47, blue: 0.34)  // #d97857
     static let background = Color.white.opacity(0.05)
     static let backgroundHover = Color.white.opacity(0.1)
+
+    /// Palette of distinct session accent colors for multi-session differentiation
+    static let sessionPalette: [Color] = [
+        Color(red: 0.85, green: 0.47, blue: 0.34),  // Claude orange
+        Color(red: 0.4, green: 0.6, blue: 1.0),      // Blue
+        Color(red: 0.8, green: 0.4, blue: 0.8),      // Magenta
+        Color(red: 0.0, green: 0.8, blue: 0.8),      // Cyan
+        Color(red: 0.9, green: 0.7, blue: 0.2),      // Gold
+        Color(red: 0.4, green: 0.75, blue: 0.45),    // Green
+        Color(red: 0.9, green: 0.45, blue: 0.55),    // Rose
+        Color(red: 0.6, green: 0.5, blue: 0.9),      // Lavender
+    ]
+
+    /// Get a stable session color from a session ID
+    static func sessionColor(for sessionId: String) -> Color {
+        let hash = abs(sessionId.hashValue)
+        return sessionPalette[hash % sessionPalette.count]
+    }
 }

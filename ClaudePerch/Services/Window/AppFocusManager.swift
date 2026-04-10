@@ -152,14 +152,15 @@ actor AppFocusManager {
             return false
         }
 
-        // Build a simple process tree check: walk up from the Claude PID looking for a pane PID
+        // Build process tree once, then check ancestry in memory
+        let tree = ProcessTreeBuilder.shared.buildTree()
+
         for line in output.components(separatedBy: "\n") {
             let parts = line.split(separator: " ", maxSplits: 1)
             guard parts.count == 2, let panePid = Int(parts[1]) else { continue }
             let targetString = String(parts[0])
 
-            // Check if the Claude PID is a descendant of this pane PID
-            if isDescendant(pid: pid, of: panePid) {
+            if ProcessTreeBuilder.shared.isDescendant(targetPid: pid, ofAncestor: panePid, tree: tree) {
                 // Extract session:window from target
                 let sessionWindow: String
                 if let dotIndex = targetString.lastIndex(of: ".") {
@@ -179,36 +180,11 @@ actor AppFocusManager {
         return false
     }
 
-    /// Check if `pid` is a descendant of `ancestorPid` by walking up the process tree
-    private nonisolated static func isDescendant(pid: Int, of ancestorPid: Int) -> Bool {
-        var current = pid
-        var visited = Set<Int>()
-        while current > 1 && !visited.contains(current) {
-            if current == ancestorPid { return true }
-            visited.insert(current)
-            // Get parent PID
-            guard let ppidStr = shell("/bin/ps", ["-o", "ppid=", "-p", "\(current)"]),
-                  let ppid = Int(ppidStr.trimmingCharacters(in: .whitespacesAndNewlines)),
-                  ppid > 0 else {
-                break
-            }
-            current = ppid
-        }
-        return false
-    }
-
     // MARK: - Activate Terminal App
 
     private nonisolated static func activateTerminalApp() {
         // Try known terminal bundle IDs, most common first
         for bid in TerminalAppRegistry.bundleIdentifiers {
-            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first,
-               app.activate() {
-                return
-            }
-        }
-        // Ghostty/cmux specific fallback
-        for bid in ["com.mitchellh.ghostty", "com.cmuxterm.app"] {
             if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first,
                app.activate() {
                 return
