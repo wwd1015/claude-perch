@@ -2,7 +2,7 @@
 //  AppFocusManager.swift
 //  ClaudePerch
 //
-//  Focuses terminal windows using cmux CLI or NSRunningApplication.
+//  Focuses terminal windows using cmux CLI, tmux, or NSRunningApplication.
 //
 
 import AppKit
@@ -15,6 +15,9 @@ actor AppFocusManager {
 
     let cmuxPath: String?
 
+    /// cmux terminal bundle ID
+    private static let cmuxBundleId = "com.cmuxterm.app"
+
     private init() {
         let paths = [
             "/Applications/cmux.app/Contents/Resources/bin/cmux",
@@ -24,94 +27,107 @@ actor AppFocusManager {
         cmuxPath = paths.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    func focusSession(pid: Int?, cwd: String, isInTmux: Bool, sessionTitle: String? = nil, sessionId: String? = nil, sessionSummary: String? = nil) async -> Bool {
+    func focusSession(pid: Int?, cwd: String, isInTmux: Bool, sessionTitle: String? = nil, sessionId: String? = nil, sessionSummary: String? = nil, termBundleId: String? = nil) async -> Bool {
         let cmux = cmuxPath
         let project = URL(fileURLWithPath: cwd).lastPathComponent
         let summary = sessionSummary
         let sid = sessionId
         let cwdPath = cwd
+        let bundleId = termBundleId
 
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                if let cmux = cmux {
-                    // Build search terms
-                    var terms: [String] = []
-                    if let sid = sid { terms.append(String(sid.prefix(8))) }
-                    if let summary = summary, !summary.isEmpty { terms.append(summary) }
-                    terms.append(project)
-                    terms.append(cwdPath)
 
-                    Self.logger.debug("FOCUS: terms=\(terms.joined(separator: " | "), privacy: .public)")
+                // Determine if this session is known to be in cmux
+                let knownCmux = bundleId?.lowercased().contains("cmux") == true
+                // Unknown terminal (discovered session) — we'll try cmux with session ID only
+                let unknownTerminal = bundleId == nil || bundleId?.isEmpty == true
 
-                    // Get full tree and parse pane->title mapping
-                    if let tree = Self.shell(cmux, ["tree", "--all"]) {
-                        Self.logger.debug("FOCUS: tree output length=\(tree.count) first200=\(String(tree.prefix(200)), privacy: .public)")
-                        // Parse: find lines with "pane pane:N" and their surface title in quotes
-                        var currentPane: String? = nil
-                        for line in tree.components(separatedBy: "\n") {
-                            if let range = line.range(of: "pane:\\d+", options: .regularExpression) {
-                                currentPane = String(line[range])
-                            }
-                            if line.contains("surface surface:"),
-                               let pane = currentPane,
-                               let q1 = line.firstIndex(of: "\"") {
-                                let afterQ1 = line.index(after: q1)
-                                if let q2 = line[afterQ1...].firstIndex(of: "\"") {
-                                    let surfaceTitle = String(line[afterQ1..<q2]).lowercased()
-
-                                    for term in terms {
-                                        if surfaceTitle.contains(term.lowercased()) {
-                                            Self.logger.debug("FOCUS: matched '\(term, privacy: .public)' in \(pane, privacy: .public)")
-                                            let _ = Self.shell(cmux, ["focus-pane", "--pane", pane])
-                                            Self.activateTerminalApp()
-                                            continuation.resume(returning: true)
-                                            return
-                                        }
-                                    }
-                                }
-                                currentPane = nil // Reset after processing surface
-                            }
-                        }
+                if let cmux = cmux, (knownCmux || unknownTerminal) {
+                    // For known cmux sessions: match on all tiers (session ID, summary, project)
+                    // For unknown sessions: only match on session ID to avoid false positives
+                    var termTiers: [[String]] = []
+                    if let sid = sid { termTiers.append([String(sid.prefix(8))]) }
+                    if knownCmux {
+                        if let summary = summary, !summary.isEmpty { termTiers.append([summary]) }
+                        termTiers.append([project, cwdPath])
                     }
 
-                    Self.logger.debug("FOCUS: no tree match, trying first unmatched pane")
+                    if !termTiers.isEmpty, let tree = Self.shell(cmux, ["tree", "--all"]) {
+                        // Parse workspace->pane->surface mappings
+                        let paneSurfaces = Self.parseCmuxTree(tree)
 
-                    // Fallback: focus the first pane that has a Claude session
-                    // (any pane with a surface that's a terminal, not a shell prompt)
-                    if let tree = Self.shell(cmux, ["tree", "--all"]) {
-                        var panes: [String] = []
-                        for line in tree.components(separatedBy: "\n") {
-                            if let range = line.range(of: "pane:\\d+", options: .regularExpression) {
-                                panes.append(String(line[range]))
+                        // Try each tier across all surfaces (most specific match wins)
+                        for tier in termTiers {
+                            for entry in paneSurfaces {
+                                let lowerTitle = entry.title.lowercased()
+                                for term in tier {
+                                    if lowerTitle.contains(term.lowercased()) {
+                                        Self.logger.debug("FOCUS: cmux matched '\(term, privacy: .public)' in \(entry.pane, privacy: .public) ws=\(entry.workspace ?? "?", privacy: .public)")
+                                        if let ws = entry.workspace {
+                                            let _ = Self.shell(cmux, ["select-workspace", "--workspace", ws])
+                                        }
+                                        let _ = Self.shell(cmux, ["focus-pane", "--pane", entry.pane])
+                                        Self.activateApp(bundleId: Self.cmuxBundleId, appName: "cmux")
+                                        continuation.resume(returning: true)
+                                        return
+                                    }
+                                }
                             }
-                        }
-                        // Try pane:1 first (most likely the unmatched session)
-                        for pane in panes {
-                            Self.logger.debug("FOCUS: fallback trying \(pane, privacy: .public)")
-                            let _ = Self.shell(cmux, ["focus-pane", "--pane", pane])
-                            Self.activateTerminalApp()
-                            continuation.resume(returning: true)
-                            return
                         }
                     }
                 }
 
-                // Tmux fallback: use TmuxController to switch to the correct pane
+                // Tmux fallback: switch to the correct pane, then activate terminal
                 if isInTmux, let pid = pid {
-                    Self.logger.debug("FOCUS: trying tmux fallback for pid=\(pid)")
+                    Self.logger.debug("FOCUS: trying tmux for pid=\(pid)")
                     let tmuxResult = Self.focusViaTmux(pid: pid, cwd: cwdPath)
                     if tmuxResult {
-                        Self.activateTerminalApp()
+                        Self.activateApp(bundleId: bundleId, appName: nil)
                         continuation.resume(returning: true)
                         return
                     }
                 }
 
-                // Last resort: just activate terminal
-                Self.activateTerminalApp()
+                // Last resort: just activate the terminal app
+                Self.activateApp(bundleId: bundleId, appName: nil)
                 continuation.resume(returning: false)
             }
         }
+    }
+
+    // MARK: - cmux Tree Parser
+
+    private struct CmuxSurface {
+        let workspace: String?
+        let pane: String
+        let title: String
+    }
+
+    private nonisolated static func parseCmuxTree(_ tree: String) -> [CmuxSurface] {
+        var results: [CmuxSurface] = []
+        var currentWorkspace: String? = nil
+        var currentPane: String? = nil
+
+        for line in tree.components(separatedBy: "\n") {
+            if let range = line.range(of: "workspace:\\d+", options: .regularExpression) {
+                currentWorkspace = String(line[range])
+            }
+            if let range = line.range(of: "pane:\\d+", options: .regularExpression) {
+                currentPane = String(line[range])
+            }
+            // Don't reset currentPane after each surface — panes have multiple surfaces (tabs)
+            if line.contains("surface surface:"),
+               let pane = currentPane,
+               let q1 = line.firstIndex(of: "\"") {
+                let afterQ1 = line.index(after: q1)
+                if let q2 = line[afterQ1...].firstIndex(of: "\"") {
+                    let title = String(line[afterQ1..<q2])
+                    results.append(CmuxSurface(workspace: currentWorkspace, pane: pane, title: title))
+                }
+            }
+        }
+        return results
     }
 
     // MARK: - Shell
@@ -139,20 +155,16 @@ actor AppFocusManager {
 
     // MARK: - Tmux Focus Fallback
 
-    /// Focus a tmux pane by finding the target for a given PID or cwd, then selecting it
     private nonisolated static func focusViaTmux(pid: Int, cwd: String) -> Bool {
-        // Try to find tmux path
         let tmuxPaths = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
         guard let tmuxPath = tmuxPaths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return false
         }
 
-        // List all panes with their PIDs
         guard let output = shell(tmuxPath, ["list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index} #{pane_pid}"]) else {
             return false
         }
 
-        // Build process tree once, then check ancestry in memory
         let tree = ProcessTreeBuilder.shared.buildTree()
 
         for line in output.components(separatedBy: "\n") {
@@ -161,7 +173,6 @@ actor AppFocusManager {
             let targetString = String(parts[0])
 
             if ProcessTreeBuilder.shared.isDescendant(targetPid: pid, ofAncestor: panePid, tree: tree) {
-                // Extract session:window from target
                 let sessionWindow: String
                 if let dotIndex = targetString.lastIndex(of: ".") {
                     sessionWindow = String(targetString[targetString.startIndex..<dotIndex])
@@ -169,7 +180,6 @@ actor AppFocusManager {
                     sessionWindow = targetString
                 }
 
-                // Select the window and pane
                 _ = shell(tmuxPath, ["select-window", "-t", sessionWindow])
                 _ = shell(tmuxPath, ["select-pane", "-t", targetString])
                 logger.debug("FOCUS: tmux switched to \(targetString, privacy: .public)")
@@ -180,24 +190,66 @@ actor AppFocusManager {
         return false
     }
 
-    // MARK: - Activate Terminal App
+    // MARK: - App Activation
 
-    private nonisolated static func activateTerminalApp() {
-        // Try known terminal bundle IDs, most common first
-        for bid in TerminalAppRegistry.bundleIdentifiers {
-            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first,
-               app.activate() {
-                return
-            }
+    /// Activate a terminal app. Tries bundle ID first, then osascript fallback.
+    private nonisolated static func activateApp(bundleId: String?, appName: String?) {
+        // Try preferred bundle ID
+        if let bid = bundleId, !bid.isEmpty {
+            if activateByBundleId(bid) { return }
         }
-        // osascript fallback
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", "tell application \"Ghostty\" to activate"]
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        try? p.run()
-        p.waitUntilExit()
+
+        // Try osascript with app name (reliable for cmux and other apps)
+        if let name = appName, !name.isEmpty {
+            if activateByOsascript(name) { return }
+        }
+
+        // Fallback: try known terminal bundle IDs in a deterministic order
+        let orderedBundleIds = [
+            "com.cmuxterm.app",
+            "com.mitchellh.ghostty",
+            "com.googlecode.iterm2",
+            "com.apple.Terminal",
+            "net.kovidgoyal.kitty",
+            "com.github.wez.wezterm",
+            "dev.warp.Warp-Stable",
+            "io.alacritty"
+        ]
+        for bid in orderedBundleIds {
+            if activateByBundleId(bid) { return }
+        }
+    }
+
+    private nonisolated static func activateByBundleId(_ bundleId: String) -> Bool {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else {
+            return false
+        }
+
+        app.unhide()
+
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.openApplication(at: url, configuration: config)
+            return true
+        }
+
+        return app.activate()
+    }
+
+    private nonisolated static func activateByOsascript(_ appName: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", "tell application \"\(appName)\" to activate"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     // MARK: - cmux Notification Suppression

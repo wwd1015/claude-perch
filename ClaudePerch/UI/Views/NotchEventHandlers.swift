@@ -228,7 +228,8 @@ extension NotchView {
                     _ = await AppFocusManager.shared.focusSession(
                         pid: session.pid, cwd: session.cwd, isInTmux: session.isInTmux,
                         sessionTitle: session.displayTitle, sessionId: session.sessionId,
-                        sessionSummary: session.summary
+                        sessionSummary: session.summary,
+                        termBundleId: session.termBundleId
                     )
                 }
             }

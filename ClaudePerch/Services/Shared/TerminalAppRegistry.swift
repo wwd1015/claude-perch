@@ -36,6 +36,7 @@ struct TerminalAppRegistry: Sendable {
 
     /// Bundle identifiers for terminal apps (for window enumeration)
     static let bundleIdentifiers: Set<String> = [
+        "com.cmuxterm.app",
         "com.apple.Terminal",
         "com.googlecode.iterm2",
         "com.mitchellh.ghostty",

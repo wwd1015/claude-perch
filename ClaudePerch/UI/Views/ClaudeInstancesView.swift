@@ -118,7 +118,8 @@ struct ClaudeInstancesView: View {
                 isInTmux: session.isInTmux,
                 sessionTitle: session.displayTitle,
                 sessionId: session.sessionId,
-                sessionSummary: session.summary ?? session.windowHint ?? session.firstUserMessage
+                sessionSummary: session.summary ?? session.windowHint ?? session.firstUserMessage,
+                termBundleId: session.termBundleId
             )
         }
         // Close the notch after jumping to terminal
@@ -180,10 +181,21 @@ struct InstanceRow: View {
     private let spinnerSymbols = ["·", "✢", "✳", "∗", "✻", "✽"]
     private let spinnerTimer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
 
-    /// Terminal app name
+    /// Terminal app name derived from bundle ID
     private var terminalName: String {
+        if let bid = session.termBundleId?.lowercased() {
+            if bid.contains("cmux") { return "cmux" }
+            if bid.contains("ghostty") { return "Ghostty" }
+            if bid.contains("iterm") { return "iTerm2" }
+            if bid.contains("terminal") { return "Terminal" }
+            if bid.contains("wezterm") { return "WezTerm" }
+            if bid.contains("kitty") { return "kitty" }
+            if bid.contains("alacritty") { return "Alacritty" }
+            if bid.contains("warp") { return "Warp" }
+            if bid.contains("vscode") || bid.contains("cursor") { return "VS Code" }
+        }
         if session.isInTmux { return "tmux" }
-        return "cmux"
+        return "terminal"
     }
 
     /// Vibe Island-style title: "project . session-summary"

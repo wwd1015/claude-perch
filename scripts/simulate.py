@@ -60,6 +60,9 @@ def base_event(**kwargs):
         "cwd": CWD,
         "pid": PID,
         "tty": None,
+        "term_bundle_id": os.environ.get("__CFBundleIdentifier", ""),
+        "tmux_env": os.environ.get("TMUX", ""),
+        "tmux_pane": os.environ.get("TMUX_PANE", ""),
     }
     event.update(kwargs)
     return event

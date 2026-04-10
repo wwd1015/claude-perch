@@ -26,10 +26,22 @@ extension SessionStore {
         }
 
         session.pid = event.pid
-        if let pid = event.pid {
+
+        // Use TMUX env var from hook for reliable tmux detection (covers tmux and cmux)
+        // Fall back to process tree walk if env var not available
+        if let tmuxEnv = event.tmuxEnv, !tmuxEnv.isEmpty {
+            session.isInTmux = true
+            session.tmuxPane = event.tmuxPane
+        } else if let pid = event.pid {
             let tree = ProcessTreeBuilder.shared.buildTree()
             session.isInTmux = ProcessTreeBuilder.shared.isInTmux(pid: pid, tree: tree)
         }
+
+        // Store terminal bundle ID for correct terminal activation
+        if let termBundleId = event.termBundleId, !termBundleId.isEmpty {
+            session.termBundleId = termBundleId
+        }
+
         if let tty = event.tty {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
         }

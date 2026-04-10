@@ -93,6 +93,11 @@ def main():
     # Check if "Always Allow" is available (permission_suggestions present)
     has_always_allow = "permission_suggestions" in data and data["permission_suggestions"]
 
+    # Capture terminal identity from environment
+    term_bundle_id = os.environ.get("__CFBundleIdentifier", "")
+    tmux_env = os.environ.get("TMUX", "")
+    tmux_pane = os.environ.get("TMUX_PANE", "")
+
     # Build state object
     state = {
         "session_id": session_id,
@@ -101,6 +106,14 @@ def main():
         "pid": claude_pid,
         "tty": tty,
     }
+
+    # Include terminal identity when available
+    if term_bundle_id:
+        state["term_bundle_id"] = term_bundle_id
+    if tmux_env:
+        state["tmux_env"] = tmux_env
+    if tmux_pane:
+        state["tmux_pane"] = tmux_pane
 
     # Include rate limits when available
     if rate_limits:

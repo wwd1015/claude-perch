@@ -261,62 +261,173 @@ class ClaudeSessionMonitor: ObservableObject {
 
     // MARK: - Session Discovery (on launch)
 
-    /// Scan ~/.claude/projects/ for recently active sessions and add them
+    /// Discover running Claude CLI sessions by scanning processes and matching to JSONL files
     private func discoverExistingSessions() {
         Task.detached(priority: .userInitiated) {
             let fileManager = FileManager.default
             let projectsDir = AppSettings.claudeProjectsPath
 
+            // Step 1: Find running Claude CLI processes
+            let runningProcesses = Self.findRunningClaudeSessions()
+            guard !runningProcesses.isEmpty else { return }
+
+            // Step 2: Build cwd -> project dir mapping and session file index
             guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsDir) else { return }
 
-            for projectDir in projectDirs {
-                // Skip hidden dirs and non-project dirs
-                guard !projectDir.hasPrefix("."), projectDir.hasPrefix("-") else { continue }
+            // Map: cwd path -> (projectDir, [(sessionId, filePath, modDate)])
+            var cwdToSessions: [String: [(sessionId: String, path: String, modDate: Date)]] = [:]
+            var sessionFiles: [String: (path: String, cwd: String)] = [:]
 
+            for projectDir in projectDirs {
+                guard !projectDir.hasPrefix("."), projectDir.hasPrefix("-") else { continue }
                 let fullProjectDir = projectsDir + "/" + projectDir
                 guard let files = try? fileManager.contentsOfDirectory(atPath: fullProjectDir) else { continue }
 
-                // Find JSONL files modified in the last 30 minutes
-                let jsonlFiles = files.filter { $0.hasSuffix(".jsonl") && !$0.hasPrefix("agent-") }
+                let cwd = Self.reconstructCwd(from: projectDir)
 
-                for jsonlFile in jsonlFiles {
-                    let filePath = fullProjectDir + "/" + jsonlFile
-                    guard let attrs = try? fileManager.attributesOfItem(atPath: filePath),
-                          let modDate = attrs[.modificationDate] as? Date else { continue }
+                for file in files where file.hasSuffix(".jsonl") && !file.hasPrefix("agent-") {
+                    let sessionId = String(file.dropLast(6))
+                    let filePath = fullProjectDir + "/" + file
+                    sessionFiles[sessionId] = (filePath, cwd)
 
-                    // Only consider sessions active in the last 10 minutes
-                    guard Date().timeIntervalSince(modDate) < 600 else { continue }
-
-                    let sessionId = String(jsonlFile.dropLast(6)) // Remove .jsonl
-
-                    // Convert dir name back to cwd path
-                    // e.g., "-Users-alan-Documents-GitHub-claude-perch" -> "/Users/alan/Documents/GitHub/claude-perch"
-                    // Can't just replace all hyphens because path components may contain hyphens
-                    // Try progressive reconstruction: replace hyphens one by one and check if path exists
-                    let cwd = Self.reconstructCwd(from: projectDir)
-
-                    // Create a synthetic hook event to register the session
-                    let event = HookEvent(
-                        sessionId: sessionId,
-                        cwd: cwd,
-                        event: "SessionStart",
-                        status: "idle",
-                        pid: nil,
-                        tty: nil,
-                        tool: nil,
-                        toolInput: nil,
-                        toolUseId: nil,
-                        notificationType: nil,
-                        message: nil
-                    )
-
-                    await SessionStore.shared.process(.hookReceived(event))
-
-                    // Load the conversation history
-                    await SessionStore.shared.process(.loadHistory(sessionId: sessionId, cwd: cwd))
+                    if let attrs = try? fileManager.attributesOfItem(atPath: filePath),
+                       let modDate = attrs[.modificationDate] as? Date {
+                        cwdToSessions[cwd, default: []].append((sessionId, filePath, modDate))
+                    }
                 }
             }
+
+            // Step 3: Create sessions for each running process
+            for proc in runningProcesses {
+                var sessionId = proc.sessionId
+                var cwd = proc.cwd
+
+                if let sid = sessionId, let fileInfo = sessionFiles[sid] {
+                    // Known session ID — use its cwd from JSONL path
+                    cwd = fileInfo.cwd
+                } else if sessionId == nil, let procCwd = cwd {
+                    // No session ID in command line — find most recent JSONL for this cwd
+                    if let sessions = cwdToSessions[procCwd] {
+                        let sorted = sessions.sorted { $0.modDate > $1.modDate }
+                        sessionId = sorted.first?.sessionId
+                    }
+                }
+
+                // Still no cwd? Get it from the process
+                if cwd == nil {
+                    cwd = ProcessTreeBuilder.shared.getWorkingDirectory(forPid: proc.pid)
+                    // Try matching cwd to JSONL again
+                    if sessionId == nil, let c = cwd, let sessions = cwdToSessions[c] {
+                        let sorted = sessions.sorted { $0.modDate > $1.modDate }
+                        sessionId = sorted.first?.sessionId
+                    }
+                }
+
+                guard let finalSessionId = sessionId, let finalCwd = cwd else { continue }
+
+                // Detect terminal type from process tree
+                let termBundleId = Self.detectTerminalBundleId(forPid: proc.pid)
+
+                let event = HookEvent(
+                    sessionId: finalSessionId,
+                    cwd: finalCwd,
+                    event: "SessionStart",
+                    status: "waiting_for_input",
+                    pid: proc.pid,
+                    tty: nil,
+                    tool: nil,
+                    toolInput: nil,
+                    toolUseId: nil,
+                    notificationType: nil,
+                    message: nil,
+                    termBundleId: termBundleId
+                )
+
+                await SessionStore.shared.process(.hookReceived(event))
+                await SessionStore.shared.process(.loadHistory(sessionId: finalSessionId, cwd: finalCwd))
+            }
         }
+    }
+
+    /// Detect the terminal app bundle ID by walking up the process tree
+    private nonisolated static func detectTerminalBundleId(forPid pid: Int) -> String? {
+        let tree = ProcessTreeBuilder.shared.buildTree()
+        var current = pid
+        var depth = 0
+
+        while current > 1 && depth < 20 {
+            guard let info = tree[current] else { break }
+            let cmd = info.command.lowercased()
+
+            if cmd.contains("cmux") { return "com.cmuxterm.app" }
+            if cmd.contains("ghostty") { return "com.mitchellh.ghostty" }
+            if cmd.contains("iterm") { return "com.googlecode.iterm2" }
+            if cmd.contains("terminal") && cmd.contains("apple") { return "com.apple.Terminal" }
+            if cmd.contains("wezterm") { return "com.github.wez.wezterm" }
+            if cmd.contains("kitty") { return "net.kovidgoyal.kitty" }
+            if cmd.contains("alacritty") { return "io.alacritty" }
+
+            current = info.ppid
+            depth += 1
+        }
+        return nil
+    }
+
+    /// Find running Claude CLI processes, with or without --session-id
+    private nonisolated static func findRunningClaudeSessions() -> [(sessionId: String?, pid: Int, cwd: String?)] {
+        guard let output = ProcessExecutor.shared.runSyncOrNil(
+            "/bin/ps", arguments: ["-ww", "-eo", "pid,comm"]
+        ) else { return [] }
+
+        // First pass: find all Claude PIDs by command name
+        var claudePids: [Int] = []
+        for line in output.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let parts = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            guard parts.count >= 2, let pid = Int(parts[0]) else { continue }
+            let comm = parts[1...].joined(separator: " ")
+            // Match "claude" or paths ending in "/claude" but not helpers/hooks
+            let lower = comm.lowercased()
+            guard lower == "claude" || lower.hasSuffix("/claude") else { continue }
+            guard !lower.contains("claude-perch"), !lower.contains("claude helper") else { continue }
+            claudePids.append(pid)
+        }
+
+        guard !claudePids.isEmpty else { return [] }
+
+        // Second pass: get full args for matched PIDs to extract session IDs
+        guard let argsOutput = ProcessExecutor.shared.runSyncOrNil(
+            "/bin/ps", arguments: ["-ww", "-o", "pid,args", "-p", claudePids.map(String.init).joined(separator: ",")]
+        ) else { return [] }
+
+        var results: [(sessionId: String?, pid: Int, cwd: String?)] = []
+        for line in argsOutput.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let parts = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            guard parts.count >= 2, let pid = Int(parts[0]) else { continue }
+
+            // Skip VS Code / IDE extension processes (they use --output-format stream-json)
+            let fullArgs = parts[1...].joined(separator: " ")
+            if fullArgs.contains("--output-format") || fullArgs.contains("native-binary") {
+                continue
+            }
+
+            var sessionId: String? = nil
+            if let idx = parts.firstIndex(of: "--session-id"), idx + 1 < parts.count {
+                let sid = parts[idx + 1]
+                if sid.count >= 8, sid.contains("-") {
+                    sessionId = sid
+                }
+            }
+
+            // Get cwd for processes without session ID
+            let cwd: String? = sessionId == nil
+                ? ProcessTreeBuilder.shared.getWorkingDirectory(forPid: pid)
+                : nil
+
+            results.append((sessionId: sessionId, pid: pid, cwd: cwd))
+        }
+        return results
     }
 
     /// Reconstruct the cwd path from the Claude projects directory name

@@ -48,6 +48,9 @@ struct HookEvent: Codable, Sendable {
     let message: String?
     let rateLimits: RateLimitInfo?
     let hasAlwaysAllow: Bool?
+    let termBundleId: String?
+    let tmuxEnv: String?
+    let tmuxPane: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -58,10 +61,13 @@ struct HookEvent: Codable, Sendable {
         case message
         case rateLimits = "rate_limits"
         case hasAlwaysAllow = "has_always_allow"
+        case termBundleId = "term_bundle_id"
+        case tmuxEnv = "tmux_env"
+        case tmuxPane = "tmux_pane"
     }
 
     /// Create a copy with updated toolUseId
-    init(sessionId: String, cwd: String, event: String, status: String, pid: Int?, tty: String?, tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?, message: String?, rateLimits: RateLimitInfo? = nil, hasAlwaysAllow: Bool? = nil) {
+    init(sessionId: String, cwd: String, event: String, status: String, pid: Int?, tty: String?, tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?, message: String?, rateLimits: RateLimitInfo? = nil, hasAlwaysAllow: Bool? = nil, termBundleId: String? = nil, tmuxEnv: String? = nil, tmuxPane: String? = nil) {
         self.sessionId = sessionId
         self.cwd = cwd
         self.event = event
@@ -75,6 +81,9 @@ struct HookEvent: Codable, Sendable {
         self.message = message
         self.rateLimits = rateLimits
         self.hasAlwaysAllow = hasAlwaysAllow
+        self.termBundleId = termBundleId
+        self.tmuxEnv = tmuxEnv
+        self.tmuxPane = tmuxPane
     }
 
     var sessionPhase: SessionPhase {
@@ -572,7 +581,10 @@ class HookSocketServer {
                 toolInput: event.toolInput,
                 toolUseId: toolUseId,  // Use resolved toolUseId
                 notificationType: event.notificationType,
-                message: event.message
+                message: event.message,
+                termBundleId: event.termBundleId,
+                tmuxEnv: event.tmuxEnv,
+                tmuxPane: event.tmuxPane
             )
 
             let pending = PendingPermission(
